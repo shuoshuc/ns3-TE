@@ -35,7 +35,7 @@
 
 using namespace ns3;
 
-NS_LOG_COMPONENT_DEFINE("TcpFlow");
+NS_LOG_COMPONENT_DEFINE("Demo1Proc");
 
 int
 main(int argc, char* argv[])
@@ -53,8 +53,7 @@ main(int argc, char* argv[])
     cmd.Parse(argc, argv);
 
     Time::SetResolution(Time::NS);
-    LogComponentEnable("TcpFlow", LOG_LEVEL_WARN);
-    LogComponentEnableAll(LOG_PREFIX_TIME);
+    LogComponentEnable("Demo1Proc", (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_TIME));
 
     //
     // Explicitly create the nodes required by the topology (shown above).
