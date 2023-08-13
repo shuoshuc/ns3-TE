@@ -17,9 +17,9 @@
  * \file
  * \ingroup mpi
  *
- * TestDistributed creates a dumbbell topology and logically splits it in
- * half.  The left half is placed on logical processor 0 and the right half
- * is placed on logical processor 1.
+ * This script creates a dumbbell topology and logically splits it in half. The
+ * left half is placed on logical processor 0 and the right half is placed on
+ * logical processor 1. The number of nodes are configurable.
  *
  *                 -------   -------
  *                  RANK 0    RANK 1
@@ -34,13 +34,13 @@
  * n3 ---------|           |           |---------- n9
  *
  *
- * OnOff clients are placed on each left leaf node. Each right leaf node
+ * BulkSend clients are placed on each left leaf node. Each right leaf node
  * is a packet sink for a left leaf node.  As a packet travels from one
  * logical processor to another (the link between n4 and n5), MPI messages
  * are passed containing the serialized packet. The message is then
  * deserialized into a new packet and sent on as normal.
  *
- * One packet is sent from each left leaf node.  The packet sinks on the
+ * One packet is sent from each left leaf node. The packet sinks on the
  * right leaf nodes output logging information when they receive the packet.
  */
 
@@ -71,6 +71,7 @@ main(int argc, char* argv[])
     bool tracing = false;
     bool verbose = false;
     uint32_t maxBytes = 10000;
+    uint32_t npairs = 2;
 
     // Parse command line
     CommandLine cmd(__FILE__);
@@ -79,6 +80,7 @@ main(int argc, char* argv[])
     cmd.AddValue("tracing", "Enable pcap tracing", tracing);
     cmd.AddValue("verbose", "verbose output", verbose);
     cmd.AddValue("maxBytes", "Total number of bytes for application to send", maxBytes);
+    cmd.AddValue("npairs", "Number of node pairs", npairs);
     cmd.Parse(argc, argv);
 
     // Distributed simulation setup; by default use granted time window algorithm.
@@ -115,7 +117,7 @@ main(int argc, char* argv[])
 
     // Create leaf nodes on left with system id 0
     NodeContainer leftLeafNodes;
-    leftLeafNodes.Create(4, 0);
+    leftLeafNodes.Create(npairs, 0);
 
     // Create router nodes.  Left router
     // with system id 0, right router with
@@ -128,7 +130,7 @@ main(int argc, char* argv[])
 
     // Create leaf nodes on right with system id 1
     NodeContainer rightLeafNodes;
-    rightLeafNodes.Create(4, 1);
+    rightLeafNodes.Create(npairs, 1);
 
     PointToPointHelper routerLink;
     routerLink.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
@@ -145,7 +147,7 @@ main(int argc, char* argv[])
     // Add links for left side leaf nodes to left router
     NetDeviceContainer leftRouterDevices;
     NetDeviceContainer leftLeafDevices;
-    for (uint32_t i = 0; i < 4; ++i)
+    for (uint32_t i = 0; i < npairs; ++i)
     {
         NetDeviceContainer temp = leafLink.Install(leftLeafNodes.Get(i), routerNodes.Get(0));
         leftLeafDevices.Add(temp.Get(0));
@@ -155,7 +157,7 @@ main(int argc, char* argv[])
     // Add links for right side leaf nodes to right router
     NetDeviceContainer rightRouterDevices;
     NetDeviceContainer rightLeafDevices;
-    for (uint32_t i = 0; i < 4; ++i)
+    for (uint32_t i = 0; i < npairs; ++i)
     {
         NetDeviceContainer temp = leafLink.Install(rightLeafNodes.Get(i), routerNodes.Get(1));
         rightLeafDevices.Add(temp.Get(0));
@@ -190,7 +192,7 @@ main(int argc, char* argv[])
     routerInterfaces = routerAddress.Assign(routerDevices);
 
     // Left interfaces
-    for (uint32_t i = 0; i < 4; ++i)
+    for (uint32_t i = 0; i < npairs; ++i)
     {
         NetDeviceContainer ndc;
         ndc.Add(leftLeafDevices.Get(i));
@@ -202,7 +204,7 @@ main(int argc, char* argv[])
     }
 
     // Right interfaces
-    for (uint32_t i = 0; i < 4; ++i)
+    for (uint32_t i = 0; i < npairs; ++i)
     {
         NetDeviceContainer ndc;
         ndc.Add(rightLeafDevices.Get(i));
@@ -242,19 +244,19 @@ main(int argc, char* argv[])
                                     InetSocketAddress(Ipv4Address::GetAny(),
                                                       port));
         ApplicationContainer sinkApps;
-        for (uint32_t i = 0; i < 4; ++i)
+        for (uint32_t i = 0; i < npairs; ++i)
         {
             sinkApps.Add(sinkHelper.Install(rightLeafNodes.Get(i)));
         }
         sinkApps.Start(Seconds(0.0));
-        sinkApps.Stop(Seconds(5));
+        sinkApps.Stop(Seconds(10));
     }
 
     // Create the BulkSend applications to send
     if (systemId == 0)
     {
         ApplicationContainer clientApps;
-        for (uint32_t i = 0; i < 4; ++i)
+        for (uint32_t i = 0; i < npairs; ++i)
         {
             BulkSendHelper clientHelper("ns3::TcpSocketFactory",
                                         InetSocketAddress(rightLeafInterfaces.GetAddress(i), port));
@@ -263,10 +265,10 @@ main(int argc, char* argv[])
             clientApps.Add(clientHelper.Install(leftLeafNodes.Get(i)));
         }
         clientApps.Start(Seconds(1.0));
-        clientApps.Stop(Seconds(5));
+        clientApps.Stop(Seconds(10));
     }
 
-    Simulator::Stop(Seconds(5));
+    Simulator::Stop(Seconds(11));
     Simulator::Run();
     Simulator::Destroy();
 
