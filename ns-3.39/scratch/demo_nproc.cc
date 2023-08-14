@@ -83,6 +83,9 @@ main(int argc, char* argv[])
     cmd.AddValue("npairs", "Number of node pairs", npairs);
     cmd.Parse(argc, argv);
 
+    Time::SetResolution(Time::NS);
+    LogComponentEnable("DemoNProc", (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_TIME));
+
     // Distributed simulation setup; by default use granted time window algorithm.
     if (nullmsg)
     {
@@ -249,7 +252,6 @@ main(int argc, char* argv[])
             sinkApps.Add(sinkHelper.Install(rightLeafNodes.Get(i)));
         }
         sinkApps.Start(Seconds(0.0));
-        sinkApps.Stop(Seconds(10));
     }
 
     // Create the BulkSend applications to send
@@ -265,11 +267,12 @@ main(int argc, char* argv[])
             clientApps.Add(clientHelper.Install(leftLeafNodes.Get(i)));
         }
         clientApps.Start(Seconds(1.0));
-        clientApps.Stop(Seconds(10));
     }
 
-    Simulator::Stop(Seconds(11));
+    NS_LOG_INFO("Run Simulation.");
+    Simulator::Stop(Seconds(10));
     Simulator::Run();
+    NS_LOG_INFO("Done.");
     Simulator::Destroy();
 
     // Exit the MPI execution environment

@@ -212,7 +212,6 @@ main(int argc, char* argv[])
         sinkApps.Add(sinkHelper.Install(rightLeafNodes.Get(i)));
     }
     sinkApps.Start(Seconds(0.0));
-    sinkApps.Stop(Seconds(10));
 
     // Create the BulkSend applications to send
     ApplicationContainer clientApps;
@@ -225,11 +224,11 @@ main(int argc, char* argv[])
         clientApps.Add(clientHelper.Install(leftLeafNodes.Get(i)));
     }
     clientApps.Start(Seconds(1.0));
-    clientApps.Stop(Seconds(10));
 
-
-    Simulator::Stop(Seconds(11));
+    NS_LOG_INFO("Run Simulation.");
+    Simulator::Stop(Seconds(10));
     Simulator::Run();
+    NS_LOG_INFO("Done.");
     Simulator::Destroy();
 
     return 0;
