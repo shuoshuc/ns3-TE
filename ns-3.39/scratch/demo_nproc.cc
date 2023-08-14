@@ -83,6 +83,9 @@ main(int argc, char* argv[])
     cmd.AddValue("npairs", "Number of node pairs", npairs);
     cmd.Parse(argc, argv);
 
+    // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
+    Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue (1448));
+
     Time::SetResolution(Time::NS);
     LogComponentEnable("DemoNProc", (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_TIME));
 
