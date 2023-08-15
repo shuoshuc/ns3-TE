@@ -85,6 +85,7 @@ main(int argc, char* argv[])
 
     // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
     Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue (1448));
+    GlobalValue::Bind("ChecksumEnabled", BooleanValue(false));
 
     Time::SetResolution(Time::NS);
     LogComponentEnable("DemoNProc", (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_TIME));

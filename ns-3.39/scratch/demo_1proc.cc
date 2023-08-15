@@ -46,6 +46,7 @@
 
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
+#include "ns3/flow-monitor-helper.h"
 #include "ns3/internet-stack-helper.h"
 #include "ns3/ipv4-address-helper.h"
 #include "ns3/ipv4-global-routing-helper.h"
@@ -80,7 +81,8 @@ main(int argc, char* argv[])
     cmd.Parse(argc, argv);
 
     // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
-    Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue (1448));
+    Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
+    GlobalValue::Bind("ChecksumEnabled", BooleanValue(false));
 
     Time::SetResolution(Time::NS);
     LogComponentEnable("Demo1Proc", (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_TIME));
@@ -228,10 +230,27 @@ main(int argc, char* argv[])
     }
     clientApps.Start(Seconds(1.0));
 
+    // Flow monitor
+    Ptr<FlowMonitor> flowMonitor;
+    FlowMonitorHelper flowHelper;
+    flowMonitor = flowHelper.InstallAll();
+
     NS_LOG_INFO("Run Simulation.");
     Simulator::Stop(Seconds(10));
     Simulator::Run();
     NS_LOG_INFO("Done.");
+
+    // Dump flow stats.
+    if (verbose) {
+        flowMonitor->SerializeToXmlFile("demo_1proc.xml", true, true);
+    }
+    for (auto&& [flowid, stats] : flowMonitor->GetFlowStats())
+    {
+        NS_LOG_INFO(std::string("FlowID: ") + std::to_string(flowid) +
+                    std::string(", FCT (nsec): ") +
+                    std::to_string(stats.timeLastRxPacket.ToInteger(ns3::Time::NS) -
+                                   stats.timeFirstTxPacket.ToInteger(ns3::Time::NS)));
+    }
     Simulator::Destroy();
 
     return 0;
