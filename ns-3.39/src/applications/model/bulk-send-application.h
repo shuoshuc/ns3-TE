@@ -132,6 +132,7 @@ class BulkSendApplication : public Application
     uint32_t m_seq{0};                   //!< Sequence
     Ptr<Packet> m_unsentPacket;          //!< Variable to cache unsent packet
     bool m_enableSeqTsSizeHeader{false}; //!< Enable or disable the SeqTsSizeHeader
+    Time m_startTxTime;                  //!< Timestamp when starting to send data
 
     /// Traced Callback: sent packets
     TracedCallback<Ptr<const Packet>> m_txTrace;
@@ -140,6 +141,9 @@ class BulkSendApplication : public Application
     /// and header
     TracedCallback<Ptr<const Packet>, const Address&, const Address&, const SeqTsSizeHeader&>
         m_txTraceWithSeqTsSize;
+
+    /// Traced Callback: start and end timestamps of the flow.
+    TracedCallback<const Time&, const Time&> m_fct;
 
   private:
     /**

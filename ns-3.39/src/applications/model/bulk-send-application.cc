@@ -88,7 +88,11 @@ BulkSendApplication::GetTypeId()
             .AddTraceSource("TxWithSeqTsSize",
                             "A new packet is created with SeqTsSizeHeader",
                             MakeTraceSourceAccessor(&BulkSendApplication::m_txTraceWithSeqTsSize),
-                            "ns3::PacketSink::SeqTsSizeCallback");
+                            "ns3::PacketSink::SeqTsSizeCallback")
+            .AddTraceSource("Fct",
+                            "A flow is completed with time fct",
+                            MakeTraceSourceAccessor(&BulkSendApplication::m_fct),
+                            "ns3::TracedCallback::Int64");
     return tid;
 }
 
@@ -188,6 +192,8 @@ BulkSendApplication::StartApplication() // Called at time specified by Start
     if (m_connected)
     {
         m_socket->GetSockName(from);
+        // About to start transmission, record current time.
+        m_startTxTime = Simulator::Now();
         SendData(from, m_peer);
     }
 }
@@ -290,6 +296,7 @@ BulkSendApplication::SendData(const Address& from, const Address& to)
     // Check if time to close (all sent)
     if (m_totBytes == m_maxBytes && m_connected)
     {
+        m_fct(m_startTxTime, Simulator::Now());
         m_socket->Close();
         m_connected = false;
     }
@@ -305,6 +312,8 @@ BulkSendApplication::ConnectionSucceeded(Ptr<Socket> socket)
     Address to;
     socket->GetSockName(from);
     socket->GetPeerName(to);
+    // About to start transmission, record current time.
+    m_startTxTime = Simulator::Now();
     SendData(from, to);
 }
 

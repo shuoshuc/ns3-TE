@@ -63,6 +63,13 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("DemoNProc");
 
+// Callback function to compute flow completion time.
+void
+calcFCT(const Time& start, const Time& end)
+{
+    NS_LOG_INFO("FCT " << (end - start).ToInteger(Time::NS) << " nsec.");
+}
+
 int
 main(int argc, char* argv[])
 {
@@ -268,7 +275,9 @@ main(int argc, char* argv[])
                                         InetSocketAddress(rightLeafInterfaces.GetAddress(i), port));
             // Set the amount of data to send in bytes.  Zero is unlimited.
             clientHelper.SetAttribute("MaxBytes", UintegerValue(maxBytes));
-            clientApps.Add(clientHelper.Install(leftLeafNodes.Get(i)));
+            Ptr<Application> app = clientHelper.Install(leftLeafNodes.Get(i)).Get(0);
+            clientApps.Add(app);
+            app->TraceConnectWithoutContext("Fct", MakeCallback(&calcFCT));
         }
         clientApps.Start(Seconds(1.0));
     }
