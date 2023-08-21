@@ -17,31 +17,13 @@
  * \file
  * \ingroup mpi
  *
- * This script creates a dumbbell topology and logically splits it in half. The
- * left half is placed on logical processor 0 and the right half is placed on
- * logical processor 1. The number of nodes are configurable.
+ * This script creates a spine-free data center topology. The fabric consists of
+ * 33 clusters. Inside each cluster, the switches are connected as a folded Clos
+ * topology between ToRs and the aggregation block.
  *
- *                 -------   -------
- *                  RANK 0    RANK 1
- *                 ------- | -------
- *                         |
- * n0 ---------|           |           |---------- n6
- *             |           |           |
- * n1 -------\ |           |           | /------- n7
- *            n4 ----------|---------- n5
- * n2 -------/ |           |           | \------- n8
- *             |           |           |
- * n3 ---------|           |           |---------- n9
- *
- *
- * BulkSend clients are placed on each left leaf node. Each right leaf node
- * is a packet sink for a left leaf node.  As a packet travels from one
- * logical processor to another (the link between n4 and n5), MPI messages
- * are passed containing the serialized packet. The message is then
- * deserialized into a new packet and sent on as normal.
- *
- * One packet is sent from each left leaf node. The packet sinks on the
- * right leaf nodes output logging information when they receive the packet.
+ * PacketSinks are placed on each ToR node. Given an input traffic trace,
+ * corresponding nodes are initialized with BulkSend applications to send flows
+ * to the sinks.
  */
 
 #include "ns3/applications-module.h"
@@ -58,6 +40,8 @@
 
 #include <iomanip>
 #include <map>
+#include <queue>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -85,12 +69,21 @@ int main(int argc, char *argv[]) {
   // Fabric name.
   std::string NET = "f2";
   // Number of clusters.
-  int NUM_CLUSTER = 1;
+  int NUM_CLUSTER = 33;
   // Number of ToR switches.
   int NUM_TOR = 32;
-  // The FQDNs of devices which should enable pcap trace on.
-  std::vector<std::string> pcap_fqdn{"f2-c1-t1-p1", "f2-c1-t32-p1",
-                                     "f2-c1-ab1-p2", "f2-c1-ab1-p64"};
+  // Number of ports on an AggrBlock.
+  int NUM_AGGR_PORTS = 64;
+  // The FQDNs of intra-cluster devices which should enable pcap trace on.
+  // All device names are stored as a map:
+  // cluster id: {"f2-c1-t1-p1", "f2-c2-ab1-p1", ...}
+  std::map<int, std::set<std::string>> pcap_intra_fqdn{
+      {1, {"f2-c1-t1-p1", "f2-c1-t2-p1", "f2-c1-t32-p1"}},
+      {33, {"f2-c33-t32-p1"}}};
+  // The FQDNs of inter-cluster devices which should enable pcap trace on.
+  // All device names are stored as a map like `pcap_intra_fqdn`.
+  std::map<int, std::set<std::string>> pcap_inter_fqdn{{1, {"f2-c1-ab1-p63"}},
+                                                       {33, {"f2-c33-ab1-p1"}}};
 
   bool tracing = false;
   bool verbose = false;
@@ -118,16 +111,28 @@ int main(int argc, char *argv[]) {
         (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_NODE | LOG_PREFIX_TIME));
   }
 
+  // =====================
+  // ==                 ==
+  // == Create topology ==
+  // ==                 ==
+  // =====================
   NS_LOG_INFO("Create topology.");
   std::map<std::string, Ptr<Node>> globalNodeMap;
   std::map<std::string, Ptr<NetDevice>> globalDeviceMap;
   std::map<std::string, std::pair<Ptr<Ipv4>, uint32_t>> globalInterfaceMap;
+  // This map maintains the AggrBlock port peering information. For each bi-di
+  // link, the records exist in the map, e.g.,
+  // f2-c1-ab1-p1: f2-c2-ab1-p1
+  // f2-c2-ab1-p1: f2-c1-ab1-p1
+  std::map<std::string, std::string> globalPeerMap;
   // All the nodes grouped by clusters.
   std::vector<StageNodeMap> cluster_nodes(NUM_CLUSTER);
   // All the devices grouped by clusters.
   std::vector<StageDeviceMap> cluster_devices(NUM_CLUSTER);
   // All the interfaces grouped by clusters.
   std::vector<StageInterfaceMap> cluster_ifs(NUM_CLUSTER);
+  // The available DCN port index grouped by clusters.
+  std::vector<std::queue<int>> cluster_dcn_ports(NUM_CLUSTER);
 
   // Iterates over each cluster, adds aggregation block and ToR nodes and tracks
   // them separately using their FQDNs.
@@ -138,6 +143,9 @@ int main(int argc, char *argv[]) {
     Ptr<Node> aggr = CreateObject<Node>(i);
     cluster_nodes[i]["aggr"].Add(aggr);
     globalNodeMap[aggr_name] = aggr;
+    for (int p = 1; p <= NUM_AGGR_PORTS; p += 2) {
+      cluster_dcn_ports[i].push(p);
+    }
 
     // Creates ToR switches and connects them to AggrBlock.
     // Intra-cluster links all have the same speed and latency.
@@ -164,16 +172,74 @@ int main(int argc, char *argv[]) {
       globalDeviceMap[aggr_dev_name] = aggr_port;
     }
 
-    // Whether to enable pcap trace on ports specified in `pcap_fqdn`.
-    if (tracing) {
-      for (auto &&fqdn : pcap_fqdn) {
-        intraClusterLink.EnablePcap(
-            "intra-cluster", NetDeviceContainer(globalDeviceMap[fqdn]), true);
+    // Whether to enable pcap trace on ports specified in `pcap_intra_fqdn`.
+    if (tracing && pcap_intra_fqdn.count(i + 1)) {
+      for (auto &&fqdn : pcap_intra_fqdn[i + 1]) {
+        if (!globalDeviceMap.count(fqdn)) {
+          NS_LOG_ERROR(fqdn << " not found in globalDeviceMap!");
+          continue;
+        }
+        intraClusterLink.EnablePcap(fqdn + ".pcap", globalDeviceMap[fqdn], true,
+                                    true);
+      }
+    }
+  }
+
+  // Now that all clusters are constructed, inter-connects them as a full mesh.
+  for (int i = 0; i < NUM_CLUSTER; ++i) {
+    std::string aggr_name = NET + "-c" + std::to_string(i + 1) + "-ab1";
+    Ptr<Node> aggr_sw = globalNodeMap[aggr_name];
+    for (int j = i + 1; j < NUM_CLUSTER; ++j) {
+      std::string peer_aggr_name = NET + "-c" + std::to_string(j + 1) + "-ab1";
+      Ptr<Node> peer_aggr_sw = globalNodeMap[peer_aggr_name];
+
+      // Inter-cluster links may not have the same speed, actual speed is
+      // determined by auto-negotiation.
+      PointToPointHelper interClusterLink;
+      // TODO: speed auto negotiation.
+      interClusterLink.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
+      interClusterLink.SetChannelAttribute("Delay", StringValue("20us"));
+
+      NetDeviceContainer link = interClusterLink.Install(aggr_sw, peer_aggr_sw);
+      Ptr<NetDevice> self_port = link.Get(0);
+      Ptr<NetDevice> peer_port = link.Get(1);
+      std::string self_port_name =
+          aggr_name + "-p" + std::to_string(cluster_dcn_ports[i].front());
+      cluster_dcn_ports[i].pop();
+      std::string peer_port_name =
+          peer_aggr_name + "-p" + std::to_string(cluster_dcn_ports[j].front());
+      cluster_dcn_ports[j].pop();
+      cluster_devices[i]["aggr-up"].Add(self_port);
+      cluster_devices[j]["aggr-up"].Add(peer_port);
+      globalDeviceMap[self_port_name] = self_port;
+      globalDeviceMap[peer_port_name] = peer_port;
+      globalPeerMap[self_port_name] = peer_port_name;
+      globalPeerMap[peer_port_name] = self_port_name;
+
+      // Whether to enable pcap trace on ports specified in `pcap_inter_fqdn`.
+      if (tracing) {
+        if (pcap_inter_fqdn.count(i + 1) &&
+            pcap_inter_fqdn[i + 1].count(self_port_name)) {
+          interClusterLink.EnablePcap(self_port_name + ".pcap", self_port, true,
+                                      true);
+        }
+        if (pcap_inter_fqdn.count(j + 1) &&
+            pcap_inter_fqdn[j + 1].count(peer_port_name)) {
+          interClusterLink.EnablePcap(peer_port_name + ".pcap", peer_port, true,
+                                      true);
+        }
       }
     }
   }
   NS_LOG_INFO(globalNodeMap.size() << " nodes created in total.");
 
+  // =======================
+  // ==                   ==
+  // == Configure routing ==
+  // ==                   ==
+  // =======================
+
+  NS_LOG_INFO("Configure routing.");
   // Sets up the network stacks and routing.
   InternetStackHelper stack;
   Ipv4NixVectorHelper nixRouting;
@@ -202,21 +268,45 @@ int main(int argc, char *argv[]) {
     for (int idx = 0; idx < NUM_TOR; ++idx) {
       std::string tor_if_name = NET + "-c" + std::to_string(i + 1) + "-t" +
                                 std::to_string(idx + 1) + "-p1";
-      std::string aggr_if_name = NET + "-c" + std::to_string(i + 1) + "-ab1" +
-                                 "-p" + std::to_string((idx + 1) * 2);
+      std::string aggr_if_name = NET + "-c" + std::to_string(i + 1) + "-ab1-p" +
+                                 std::to_string((idx + 1) * 2);
       globalInterfaceMap[tor_if_name] = torUpIfs.Get(idx);
       globalInterfaceMap[aggr_if_name] = aggrDownIfs.Get(idx);
     }
+    // Inter-cluster interfaces are assigned IP address:
+    // 10.100.{cluster id}.{port id / 2 + 1}
+    Ipv4AddressHelper dcnAddress;
+    std::string startIP = "0.0." + std::to_string(i + 1) + ".1";
+    dcnAddress.SetBase("10.100.0.0", "255.255.0.0", startIP.c_str());
+    Ipv4InterfaceContainer dcnIfs =
+        dcnAddress.Assign(cluster_devices[i]["aggr-up"]);
+    cluster_ifs[i]["aggr-up"].Add(dcnIfs);
+    // Establishes global interface map.
+    for (int p = 0; p < NUM_AGGR_PORTS / 2; ++p) {
+      std::string dcn_if_name = NET + "-c" + std::to_string(i + 1) + "-ab1-p" +
+                                std::to_string(p * 2 + 1);
+      globalInterfaceMap[dcn_if_name] = dcnIfs.Get(p);
+    }
   }
 
+  // ======================
+  // ==                  ==
+  // == Generate traffic ==
+  // ==                  ==
+  // ======================
+
+  NS_LOG_INFO("Generate traffic.");
   // Creates a packet sink on the last ToR of cluster 1.
   std::string srcTor = "f2-c1-t1";
+  std::string srcTor2 = "f2-c1-t2";
   std::string dstTor = "f2-c1-t32";
+  std::string dstTor2 = "f2-c33-t32";
   uint16_t port = 50000;
   PacketSinkHelper sinkHelper("ns3::TcpSocketFactory",
                               InetSocketAddress(Ipv4Address::GetAny(), port));
   ApplicationContainer sinkApps;
   sinkApps.Add(sinkHelper.Install(globalNodeMap[dstTor]));
+  sinkApps.Add(sinkHelper.Install(globalNodeMap[dstTor2]));
   sinkApps.Start(Seconds(0.0));
 
   // Creates the BulkSend applications to send
@@ -230,6 +320,16 @@ int main(int argc, char *argv[]) {
   // Set the amount of data to send in bytes.  Zero is unlimited.
   clientHelper.SetAttribute("MaxBytes", UintegerValue(maxBytes));
   clientApps.Add(clientHelper.Install(globalNodeMap[srcTor]));
+
+  Ipv4Address dstAddr2 =
+      globalInterfaceMap[dstTor2 + "-p1"]
+          .first->GetAddress(globalInterfaceMap[dstTor2 + "-p1"].second, 0)
+          .GetLocal();
+  BulkSendHelper clientHelper2("ns3::TcpSocketFactory",
+                               InetSocketAddress(dstAddr2, port));
+  // Set the amount of data to send in bytes.  Zero is unlimited.
+  clientHelper2.SetAttribute("MaxBytes", UintegerValue(maxBytes));
+  clientApps.Add(clientHelper2.Install(globalNodeMap[srcTor2]));
   for (uint32_t i = 0; i < clientApps.GetN(); ++i) {
     clientApps.Get(i)->TraceConnectWithoutContext("Fct",
                                                   MakeCallback(&calcFCT));
