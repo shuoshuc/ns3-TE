@@ -38,8 +38,10 @@
 #include "ns3/packet-sink-helper.h"
 #include "ns3/point-to-point-helper.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <map>
+#include <numeric>
 #include <queue>
 #include <set>
 #include <string>
@@ -59,21 +61,50 @@ using StageInterfaceMap = std::map<std::string, Ipv4InterfaceContainer>;
 
 NS_LOG_COMPONENT_DEFINE("SpinefreeF2");
 
+// Looks up the corresponding generation for a given cluster index. The second
+// parameter is a vector of number of clusters for each generation. For example,
+// [11, 11, 11] means 11 cluster for Gen 1/2/3, respectively.
+int getClusterGenByIndex(int idx, std::vector<int> genVec) {
+  if (idx < 1 || idx > std::accumulate(genVec.begin(), genVec.end(), 0)) {
+    NS_LOG_ERROR("Invalid cluster index " << idx);
+    return -1;
+  }
+  int partial_sum = 0;
+  for (uint32_t it = 0; it < genVec.size(); ++it) {
+    partial_sum += genVec[it];
+    if (idx <= partial_sum) {
+      return it + 1;
+    }
+  }
+  // It will be an error if the function ends up returning here.
+  return -1;
+}
+
 // Callback function to compute flow completion time.
 void calcFCT(const Time &start, const Time &end) {
   NS_LOG_INFO("FCT " << (end - start).ToInteger(Time::NS) << " nsec.");
 }
 
 int main(int argc, char *argv[]) {
-  // Fabric spec.
+
+  // ===========================
+  // ==                       ==
+  // == Fabric spec and flags ==
+  // ==                       ==
+  // ===========================
+
   // Fabric name.
   std::string NET = "f2";
+  // Number of Gen. 1/2/3 clusters.
+  std::vector<int> GEN_VEC{11, 11, 11};
   // Number of clusters.
-  int NUM_CLUSTER = 33;
+  int NUM_CLUSTER = std::accumulate(GEN_VEC.begin(), GEN_VEC.end(), 0);
   // Number of ToR switches.
   int NUM_TOR = 32;
   // Number of ports on an AggrBlock.
   int NUM_AGGR_PORTS = 64;
+  // Cluster speed map from Gen. ID to speed in Gbps.
+  std::map<int, int> SPEED_MAP{{1, 40}, {2, 100}, {3, 200}};
   // The FQDNs of intra-cluster devices which should enable pcap trace on.
   // All device names are stored as a map:
   // cluster id: {"f2-c1-t1-p1", "f2-c2-ab1-p1", ...}
@@ -88,7 +119,6 @@ int main(int argc, char *argv[]) {
   bool tracing = false;
   bool verbose = false;
   uint32_t maxBytes = 10000;
-
   // Parse command line
   CommandLine cmd(__FILE__);
   cmd.AddValue("tracing", "Enable pcap tracing", tracing);
@@ -150,7 +180,14 @@ int main(int argc, char *argv[]) {
     // Creates ToR switches and connects them to AggrBlock.
     // Intra-cluster links all have the same speed and latency.
     PointToPointHelper intraClusterLink;
-    intraClusterLink.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
+    int gen_id = getClusterGenByIndex(i + 1, GEN_VEC);
+    // Invalid generation id, abort.
+    if (gen_id < 0) {
+      NS_LOG_ERROR("Invalid cluster index. Gen id " << gen_id);
+      return -1;
+    }
+    intraClusterLink.SetDeviceAttribute(
+        "DataRate", StringValue(std::to_string(SPEED_MAP[gen_id]) + "Gbps"));
     intraClusterLink.SetChannelAttribute("Delay", StringValue("20us"));
     for (int idx = 0; idx < NUM_TOR; ++idx) {
       std::string tor_name =
@@ -196,8 +233,20 @@ int main(int argc, char *argv[]) {
       // Inter-cluster links may not have the same speed, actual speed is
       // determined by auto-negotiation.
       PointToPointHelper interClusterLink;
-      // TODO: speed auto negotiation.
-      interClusterLink.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
+      // Performs speed auto negotiation.
+      int self_gen_id = getClusterGenByIndex(i + 1, GEN_VEC);
+      int peer_gen_id = getClusterGenByIndex(j + 1, GEN_VEC);
+      // Invalid generation id, abort.
+      if (self_gen_id < 0 || peer_gen_id < 0) {
+        NS_LOG_ERROR("Invalid cluster index. Self gen id "
+                     << self_gen_id << ", peer gen id " << peer_gen_id);
+        return -1;
+      }
+      interClusterLink.SetDeviceAttribute(
+          "DataRate",
+          StringValue(std::to_string(std::min(SPEED_MAP[self_gen_id],
+                                              SPEED_MAP[peer_gen_id])) +
+                      "Gbps"));
       interClusterLink.SetChannelAttribute("Delay", StringValue("20us"));
 
       NetDeviceContainer link = interClusterLink.Install(aggr_sw, peer_aggr_sw);
