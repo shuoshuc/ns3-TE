@@ -39,12 +39,15 @@
 #include "ns3/point-to-point-helper.h"
 
 #include <algorithm>
+#include <fstream>
 #include <iomanip>
+#include <istream>
 #include <map>
 #include <numeric>
 #include <queue>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace ns3;
@@ -58,8 +61,45 @@ using StageDeviceMap = std::map<std::string, NetDeviceContainer>;
 // Ipv4InterfaceContainer filled with interfaces.
 // e.g., 'tor-up': {if1, if2, ...}
 using StageInterfaceMap = std::map<std::string, Ipv4InterfaceContainer>;
+// TM row format: <src, dst, demand>.
+using TMRow = std::tuple<std::string, std::string, uint32_t>;
+// Complete traffic matrix (not in actual matrix format).
+using TrafficMatrix = std::vector<TMRow>;
 
 NS_LOG_COMPONENT_DEFINE("SpinefreeF2");
+
+// The csv file parsing apparatus.
+std::vector<std::string> readCSVRow(const std::string &row) {
+  std::vector<std::string> fields{""};
+  size_t i = 0; // index of the current field
+  for (char c : row) {
+    switch (c) {
+    case ',': // end of field
+      fields.push_back("");
+      i++;
+      break;
+    default:
+      fields[i].push_back(c);
+      break;
+    }
+  }
+  return fields;
+}
+
+TrafficMatrix readCSV(const std::string &filename) {
+  std::ifstream tm_file(filename);
+  TrafficMatrix tm;
+  std::string row;
+  while (std::getline(tm_file, row)) {
+    std::vector<std::string> parsed_row = readCSVRow(row);
+    if (parsed_row.size() != 3) {
+      NS_LOG_ERROR("Error parsing TM row: " << row);
+      continue;
+    }
+    tm.push_back({parsed_row[0], parsed_row[1], std::stoi(parsed_row[2])});
+  }
+  return tm;
+}
 
 // Looks up the corresponding generation for a given cluster index. The second
 // parameter is a vector of number of clusters for each generation. For example,
@@ -345,6 +385,10 @@ int main(int argc, char *argv[]) {
   // ======================
 
   NS_LOG_INFO("Generate traffic.");
+
+  TrafficMatrix tm = readCSV("./trace/f2-tm.csv");
+  NS_LOG_INFO("TM size: " << tm.size());
+
   // Creates a packet sink on the last ToR of cluster 1.
   std::string srcTor = "f2-c1-t1";
   std::string srcTor2 = "f2-c1-t2";
