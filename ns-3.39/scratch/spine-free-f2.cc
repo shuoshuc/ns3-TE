@@ -61,8 +61,8 @@ using StageDeviceMap = std::map<std::string, NetDeviceContainer>;
 // Ipv4InterfaceContainer filled with interfaces.
 // e.g., 'tor-up': {if1, if2, ...}
 using StageInterfaceMap = std::map<std::string, Ipv4InterfaceContainer>;
-// TM row format: <src, dst, demand>.
-using TMRow = std::tuple<std::string, std::string, uint32_t>;
+// TM row format: <src, dst, demand, start_time>.
+using TMRow = std::tuple<std::string, std::string, uint64_t, uint64_t>;
 // Complete traffic matrix (not in actual matrix format).
 using TrafficMatrix = std::vector<TMRow>;
 
@@ -92,11 +92,12 @@ TrafficMatrix readCSV(const std::string &filename) {
   std::string row;
   while (std::getline(tm_file, row)) {
     std::vector<std::string> parsed_row = readCSVRow(row);
-    if (parsed_row.size() != 3) {
+    if (parsed_row.size() != 4) {
       NS_LOG_ERROR("Error parsing TM row: " << row);
       continue;
     }
-    tm.push_back({parsed_row[0], parsed_row[1], std::stoi(parsed_row[2])});
+    tm.push_back({parsed_row[0], parsed_row[1], std::stol(parsed_row[2]),
+                  std::stol(parsed_row[3])});
   }
   return tm;
 }
@@ -155,16 +156,17 @@ int main(int argc, char *argv[]) {
   // All device names are stored as a map like `pcap_intra_fqdn`.
   std::map<int, std::set<std::string>> pcap_inter_fqdn{{1, {"f2-c1-ab1-p63"}},
                                                        {33, {"f2-c33-ab1-p1"}}};
+  std::string MSFT_WEB_TRACE = "./trace/f2-msft-web.csv";
 
   bool tracing = false;
   bool verbose = false;
-  uint32_t maxBytes = 10000;
+  std::string trafficInput = "./trace/test.csv";
   // Parse command line
   CommandLine cmd(__FILE__);
   cmd.AddValue("tracing", "Enable pcap tracing", tracing);
   cmd.AddValue("verbose", "verbose output", verbose);
-  cmd.AddValue("maxBytes", "Total number of bytes for application to send",
-               maxBytes);
+  cmd.AddValue("trafficInput", "File path of the input traffic demand file",
+               trafficInput);
   cmd.Parse(argc, argv);
 
   // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
@@ -386,48 +388,43 @@ int main(int argc, char *argv[]) {
 
   NS_LOG_INFO("Generate traffic.");
 
-  TrafficMatrix tm = readCSV("./trace/f2-tm.csv");
-  NS_LOG_INFO("TM size: " << tm.size());
+  // Load in the TM file.
+  TrafficMatrix TM = readCSV(trafficInput);
+  NS_LOG_INFO("Trace entries: " << TM.size());
 
-  // Creates a packet sink on the last ToR of cluster 1.
-  std::string srcTor = "f2-c1-t1";
-  std::string srcTor2 = "f2-c1-t2";
-  std::string dstTor = "f2-c1-t32";
-  std::string dstTor2 = "f2-c33-t32";
+  // Creates a packet sink on all ToRs.
   uint16_t port = 50000;
   PacketSinkHelper sinkHelper("ns3::TcpSocketFactory",
                               InetSocketAddress(Ipv4Address::GetAny(), port));
   ApplicationContainer sinkApps;
-  sinkApps.Add(sinkHelper.Install(globalNodeMap[dstTor]));
-  sinkApps.Add(sinkHelper.Install(globalNodeMap[dstTor2]));
+  for (int i = 0; i < NUM_CLUSTER; ++i) {
+    sinkApps.Add(sinkHelper.Install(cluster_nodes[i]["tor"]));
+  }
   sinkApps.Start(Seconds(0.0));
 
-  // Creates the BulkSend applications to send
+  // Creates the BulkSend applications to send. Who sends to who, how much and
+  // when to send is determined by the rows in TM.
   ApplicationContainer clientApps;
-  Ipv4Address dstAddr =
-      globalInterfaceMap[dstTor + "-p1"]
-          .first->GetAddress(globalInterfaceMap[dstTor + "-p1"].second, 0)
-          .GetLocal();
-  BulkSendHelper clientHelper("ns3::TcpSocketFactory",
-                              InetSocketAddress(dstAddr, port));
-  // Set the amount of data to send in bytes.  Zero is unlimited.
-  clientHelper.SetAttribute("MaxBytes", UintegerValue(maxBytes));
-  clientApps.Add(clientHelper.Install(globalNodeMap[srcTor]));
-
-  Ipv4Address dstAddr2 =
-      globalInterfaceMap[dstTor2 + "-p1"]
-          .first->GetAddress(globalInterfaceMap[dstTor2 + "-p1"].second, 0)
-          .GetLocal();
-  BulkSendHelper clientHelper2("ns3::TcpSocketFactory",
-                               InetSocketAddress(dstAddr2, port));
-  // Set the amount of data to send in bytes.  Zero is unlimited.
-  clientHelper2.SetAttribute("MaxBytes", UintegerValue(maxBytes));
-  clientApps.Add(clientHelper2.Install(globalNodeMap[srcTor2]));
-  for (uint32_t i = 0; i < clientApps.GetN(); ++i) {
-    clientApps.Get(i)->TraceConnectWithoutContext("Fct",
-                                                  MakeCallback(&calcFCT));
+  for (const TMRow &row : TM) {
+    std::string src = std::get<0>(row);
+    std::string dst = std::get<1>(row);
+    uint64_t flow_size = std::get<2>(row);
+    uint64_t start_time = std::get<3>(row);
+    Ipv4Address dstAddr =
+        globalInterfaceMap[dst + "-p1"]
+            .first->GetAddress(globalInterfaceMap[dst + "-p1"].second, 0)
+            .GetLocal();
+    BulkSendHelper clientHelper("ns3::TcpSocketFactory",
+                                InetSocketAddress(dstAddr, port));
+    // Set the amount of data to send in bytes.  Zero is unlimited.
+    clientHelper.SetAttribute("MaxBytes", UintegerValue(flow_size));
+    ApplicationContainer client = clientHelper.Install(globalNodeMap[src]);
+    // Register callback to measure FCT, there is supposed to be only one app
+    // in this container.
+    client.Get(0)->TraceConnectWithoutContext("Fct", MakeCallback(&calcFCT));
+    client.Start(NanoSeconds(start_time));
+    clientApps.Add(client);
   }
-  clientApps.Start(Seconds(1.0));
 
   // Flow monitor. Only install FlowMonitor if verbose is true.
   Ptr<FlowMonitor> flowMonitor;
