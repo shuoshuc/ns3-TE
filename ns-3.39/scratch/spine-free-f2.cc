@@ -70,6 +70,11 @@ NS_LOG_COMPONENT_DEFINE("SpinefreeF2");
 
 // The csv file parsing apparatus.
 std::vector<std::string> readCSVRow(const std::string &row) {
+  // Skips empty line or comment line that starts with a hashtag.
+  if (row.size() <= 0 || row[0] == '#') {
+    return {};
+  }
+
   std::vector<std::string> fields{""};
   size_t i = 0; // index of the current field
   for (char c : row) {
@@ -92,6 +97,9 @@ TrafficMatrix readCSV(const std::string &filename) {
   std::string row;
   while (std::getline(tm_file, row)) {
     std::vector<std::string> parsed_row = readCSVRow(row);
+    if (parsed_row.empty()) {
+      continue;
+    }
     if (parsed_row.size() != 4) {
       NS_LOG_ERROR("Error parsing TM row: " << row);
       continue;
