@@ -142,6 +142,8 @@ int main(int argc, char *argv[]) {
   // ==                       ==
   // ===========================
 
+  // If true, the simulation will be run using MPI.
+  bool USE_MPI = false;
   // Fabric name.
   std::string NET = "f2";
   // Number of Gen. 1/2/3 clusters.
@@ -222,7 +224,7 @@ int main(int argc, char *argv[]) {
     // Creates aggregation block. Assuming only 1 AggrBlock in each cluster.
     std::string aggr_name = NET + "-c" + std::to_string(i + 1) + "-ab1";
     // Node is created with system id = cluster id.
-    Ptr<Node> aggr = CreateObject<Node>(i);
+    Ptr<Node> aggr = CreateObject<Node>(USE_MPI ? i : Simulator::GetSystemId());
     cluster_nodes[i]["aggr"].Add(aggr);
     globalNodeMap[aggr_name] = aggr;
     for (int p = 1; p <= NUM_AGGR_PORTS; p += 2) {
@@ -245,7 +247,8 @@ int main(int argc, char *argv[]) {
       std::string tor_name =
           NET + "-c" + std::to_string(i + 1) + "-t" + std::to_string(idx + 1);
       // Node is created with system id = cluster id.
-      Ptr<Node> tor = CreateObject<Node>(i);
+      Ptr<Node> tor =
+          CreateObject<Node>(USE_MPI ? i : Simulator::GetSystemId());
       cluster_nodes[i]["tor"].Add(tor);
       globalNodeMap[tor_name] = tor;
       // Establishes AggrBlock-ToR connectivity.
@@ -444,9 +447,14 @@ int main(int argc, char *argv[]) {
     flowMonitor = flowHelper.InstallAll();
   }
 
-  // Dumps the routing table of requested nodes for debugging.
+  // Dumps the routing table of requested nodes for debugging. In a distributed
+  // (MPI) use case, only the process responsible for the node gets to dump the
+  // routing table. This avoids file access contention.
   Ipv4GlobalRoutingHelper gRouting;
   for (const auto &node : subscribed_routing_tables) {
+    if (globalNodeMap[node]->GetSystemId() != Simulator::GetSystemId()) {
+      continue;
+    }
     gRouting.PrintRoutingTableAt(
         Seconds(0), globalNodeMap[node],
         Create<OutputStreamWrapper>(node + ".route", std::ios::out));
