@@ -131,7 +131,11 @@ int getClusterGenByIndex(int idx, std::vector<int> genVec) {
 
 // Callback function to compute flow completion time.
 void calcFCT(const Time &start, const Time &end) {
-  NS_LOG_INFO("FCT " << (end - start).ToInteger(Time::NS) << " nsec.");
+  auto dur = (end - start).ToInteger(Time::NS);
+  if (dur <= 0) {
+    return;
+  }
+  NS_LOG_INFO("FCT " << dur << " nsec.");
 }
 
 int main(int argc, char *argv[]) {
