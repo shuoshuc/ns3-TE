@@ -32,6 +32,7 @@
 #include "ns3/internet-stack-helper.h"
 #include "ns3/ipv4-address-helper.h"
 #include "ns3/ipv4-global-routing-helper.h"
+#include "ns3/ipv4-static-routing-helper.h"
 #include "ns3/network-module.h"
 #include "ns3/nix-vector-helper.h"
 #include "ns3/on-off-helper.h"
@@ -48,6 +49,7 @@
 #include <set>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace ns3;
@@ -65,6 +67,8 @@ using StageInterfaceMap = std::map<std::string, Ipv4InterfaceContainer>;
 using TMRow = std::tuple<std::string, std::string, uint64_t, uint64_t>;
 // Complete traffic matrix (not in actual matrix format).
 using TrafficMatrix = std::vector<TMRow>;
+// A link is represented as <src port, dst port>.
+using Link = std::pair<std::string, std::string>;
 
 NS_LOG_COMPONENT_DEFINE("SpinefreeF2");
 
@@ -138,6 +142,26 @@ void calcFCT(const Time &start, const Time &end) {
   NS_LOG_INFO("FCT " << dur << " nsec.");
 }
 
+// Wipes the static routing table on the specified node.
+void wipeStaticRoutingTable(Ptr<Node> node,
+                            const Ipv4StaticRoutingHelper &ipv4RoutingHelper) {
+  Ptr<Ipv4StaticRouting> staticRouting =
+      ipv4RoutingHelper.GetStaticRouting(node->GetObject<Ipv4>());
+  while (staticRouting->GetNRoutes()) {
+    staticRouting->RemoveRoute(0);
+  }
+}
+
+// Installs default route and localhost route on the specified node. The node
+// must have at least one egress port.
+void installLocalAndDefaultRoute(
+    Ptr<Node> node, const Ipv4StaticRoutingHelper &ipv4RoutingHelper) {
+  Ptr<Ipv4StaticRouting> staticRouting =
+      ipv4RoutingHelper.GetStaticRouting(node->GetObject<Ipv4>());
+  staticRouting->AddNetworkRouteTo(Ipv4Address("0.0.0.0"), Ipv4Mask("/0"), 1);
+  staticRouting->AddNetworkRouteTo(Ipv4Address("127.0.0.0"), Ipv4Mask("/8"), 0);
+}
+
 int main(int argc, char *argv[]) {
 
   // ===========================
@@ -171,7 +195,8 @@ int main(int argc, char *argv[]) {
   std::map<int, std::set<std::string>> pcap_inter_fqdn{{1, {"f2-c1-ab1-p1"}},
                                                        {2, {"f2-c2-ab1-p1"}}};
   // A vector of node names where the routing table of each should be dumped.
-  std::vector<std::string> subscribed_routing_tables{"f2-c1-ab1", "f2-c2-ab1"};
+  std::vector<std::string> subscribed_routing_tables{};
+  // Some constants of the trace name to use.
   std::string MSFT_WEB_TRACE = "./trace/f2-msft-web.csv";
 
   bool tracing = false;
@@ -213,6 +238,12 @@ int main(int argc, char *argv[]) {
   // f2-c1-ab1-p1: f2-c2-ab1-p1
   // f2-c2-ab1-p1: f2-c1-ab1-p1
   std::map<std::string, std::string> globalPeerMap;
+  // Maintains the inter-cluster links between any given pair of aggregation
+  // blocks, links are bi-di, so stored twice in both directions, e.g.,
+  // <f2-c1-ab1, f2-c2-ab1>: {<f2-c1-ab1-p1, f2-c2-ab1-p1>}
+  // <f2-c2-ab1, f2-c1-ab1>: {<f2-c2-ab1-p1, f2-c1-ab1-p1>}
+  std::map<std::pair<std::string, std::string>, std::vector<Link>>
+      globalDcnLinkMap;
   // All the nodes grouped by clusters.
   std::vector<StageNodeMap> cluster_nodes(NUM_CLUSTER);
   // All the devices grouped by clusters.
@@ -266,6 +297,8 @@ int main(int argc, char *argv[]) {
       cluster_devices[i]["aggr-down"].Add(aggr_port);
       globalDeviceMap[tor_dev_name] = tor_port;
       globalDeviceMap[aggr_dev_name] = aggr_port;
+      globalPeerMap[tor_dev_name] = aggr_dev_name;
+      globalPeerMap[aggr_dev_name] = tor_dev_name;
     }
 
     // Whether to enable pcap trace on ports specified in `pcap_intra_fqdn`.
@@ -323,6 +356,10 @@ int main(int argc, char *argv[]) {
       globalDeviceMap[peer_port_name] = peer_port;
       globalPeerMap[self_port_name] = peer_port_name;
       globalPeerMap[peer_port_name] = self_port_name;
+      globalDcnLinkMap[std::make_pair(aggr_name, peer_aggr_name)].push_back(
+          std::make_pair(self_port_name, peer_port_name));
+      globalDcnLinkMap[std::make_pair(peer_aggr_name, aggr_name)].push_back(
+          std::make_pair(peer_port_name, self_port_name));
 
       // Whether to enable pcap trace on ports specified in `pcap_inter_fqdn`.
       if (tracing) {
@@ -350,8 +387,6 @@ int main(int argc, char *argv[]) {
   NS_LOG_INFO("Configure routing.");
   // Sets up the network stacks and routing.
   InternetStackHelper stack;
-  // Ipv4NixVectorHelper nixRouting;
-  // stack.SetRoutingHelper(nixRouting); // has effect on the next Install ()
   stack.InstallAll();
 
   // Assigns IP addresses to each interface.
@@ -396,7 +431,58 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+  // Builds static routing table for all nodes.
+  Ipv4StaticRoutingHelper ipv4RoutingHelper;
+  for (int i = 0; i < NUM_CLUSTER; ++i) {
+    Ptr<Node> aggr = cluster_nodes[i]["aggr"].Get(0);
+    wipeStaticRoutingTable(aggr, ipv4RoutingHelper);
+    installLocalAndDefaultRoute(aggr, ipv4RoutingHelper);
+    // Builds intra-cluster routing, including routes on ToRs and host routes on
+    // aggregation block.
+    NodeContainer &tors = cluster_nodes[i]["tor"];
+    for (uint32_t j = 0; j < tors.GetN(); ++j) {
+      wipeStaticRoutingTable(tors.Get(j), ipv4RoutingHelper);
+      installLocalAndDefaultRoute(tors.Get(j), ipv4RoutingHelper);
+      // Finds the peer port of each ToR, this is the egress to reach that ToR.
+      // Adds host routes on the aggregation block accordingly.
+      std::string tor_egress_port = NET + "-c" + std::to_string(i + 1) + "-t" +
+                                    std::to_string(j + 1) + "-p1";
+      uint32_t aggr_if_id =
+          globalDeviceMap[globalPeerMap[tor_egress_port]]->GetIfIndex() + 1;
+      Ipv4Address torAddr =
+          globalInterfaceMap[tor_egress_port]
+              .first->GetAddress(globalInterfaceMap[tor_egress_port].second, 0)
+              .GetLocal();
+      Ptr<Ipv4StaticRouting> staticRouting =
+          ipv4RoutingHelper.GetStaticRouting(aggr->GetObject<Ipv4>());
+      // Host routes are always /32.
+      staticRouting->AddNetworkRouteTo(torAddr, Ipv4Mask("/32"), aggr_if_id);
+    }
+    for (int k = 0; k < NUM_CLUSTER; ++k) {
+      // No need for routes to self, skip.
+      if (i == k) {
+        continue;
+      }
+      // Looks up all DCN links between the cluster pair.
+      std::string self_aggr_name = NET + "-c" + std::to_string(i + 1) + "-ab1";
+      std::string peer_aggr_name = NET + "-c" + std::to_string(k + 1) + "-ab1";
+      std::vector<Link> links =
+          globalDcnLinkMap[std::make_pair(self_aggr_name, peer_aggr_name)];
+      // For each valid DCN link, adds a route to the dst cluster. With
+      // multipath routing, one of them should be selected for use.
+      for (const auto &link : links) {
+        uint32_t dcn_if_id = globalDeviceMap[link.first]->GetIfIndex() + 1;
+        Ptr<Ipv4StaticRouting> staticRouting =
+            ipv4RoutingHelper.GetStaticRouting(aggr->GetObject<Ipv4>());
+        staticRouting->AddNetworkRouteTo(
+            Ipv4Address(
+                std::string("10." + std::to_string(k + 1) + ".1.0").c_str()),
+            Ipv4Mask("/24"), dcn_if_id);
+      }
+    }
+  }
+
+  // Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
   // ======================
   // ==                  ==
