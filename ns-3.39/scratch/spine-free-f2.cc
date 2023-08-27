@@ -158,12 +158,14 @@ int main(int argc, char *argv[]) {
   // All device names are stored as a map:
   // cluster id: {"f2-c1-t1-p1", "f2-c2-ab1-p1", ...}
   std::map<int, std::set<std::string>> pcap_intra_fqdn{
-      {1, {"f2-c1-t1-p1", "f2-c1-t2-p1", "f2-c1-t32-p1"}},
-      {33, {"f2-c33-t32-p1"}}};
+      {1, {"f2-c1-t1-p1", "f2-c1-ab1-p2"}},
+      {2, {"f2-c2-t11-p1", "f2-c2-ab1-p22"}}};
   // The FQDNs of inter-cluster devices which should enable pcap trace on.
   // All device names are stored as a map like `pcap_intra_fqdn`.
-  std::map<int, std::set<std::string>> pcap_inter_fqdn{{1, {"f2-c1-ab1-p63"}},
-                                                       {33, {"f2-c33-ab1-p1"}}};
+  std::map<int, std::set<std::string>> pcap_inter_fqdn{{1, {"f2-c1-ab1-p1"}},
+                                                       {2, {"f2-c2-ab1-p1"}}};
+  // A vector of node names where the routing table of each should be dumped.
+  std::vector<std::string> subscribed_routing_tables{"f2-c1-ab1", "f2-c2-ab1"};
   std::string MSFT_WEB_TRACE = "./trace/f2-msft-web.csv";
 
   bool tracing = false;
@@ -341,10 +343,9 @@ int main(int argc, char *argv[]) {
   NS_LOG_INFO("Configure routing.");
   // Sets up the network stacks and routing.
   InternetStackHelper stack;
-  Ipv4NixVectorHelper nixRouting;
-  stack.SetRoutingHelper(nixRouting); // has effect on the next Install ()
+  // Ipv4NixVectorHelper nixRouting;
+  // stack.SetRoutingHelper(nixRouting); // has effect on the next Install ()
   stack.InstallAll();
-  // Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
   // Assigns IP addresses to each interface.
   for (int i = 0; i < NUM_CLUSTER; ++i) {
@@ -387,6 +388,8 @@ int main(int argc, char *argv[]) {
       globalInterfaceMap[dcn_if_name] = dcnIfs.Get(p);
     }
   }
+
+  Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
   // ======================
   // ==                  ==
@@ -439,6 +442,14 @@ int main(int argc, char *argv[]) {
   FlowMonitorHelper flowHelper;
   if (verbose) {
     flowMonitor = flowHelper.InstallAll();
+  }
+
+  // Dumps the routing table of requested nodes for debugging.
+  Ipv4GlobalRoutingHelper gRouting;
+  for (const auto &node : subscribed_routing_tables) {
+    gRouting.PrintRoutingTableAt(
+        Seconds(0), globalNodeMap[node],
+        Create<OutputStreamWrapper>(node + ".route", std::ios::out));
   }
 
   NS_LOG_INFO("Run simulation.");
