@@ -26,6 +26,7 @@
 #include "ns3/ipv4-routing-protocol.h"
 #include "ns3/ipv4.h"
 #include "ns3/ptr.h"
+#include "ns3/random-variable-stream.h"
 #include "ns3/socket.h"
 
 #include <list>
@@ -362,6 +363,12 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
     void DoDispose() override;
 
   private:
+    /// Set to true if flows are randomly routed among ECMP; set to false for using only one route
+    /// consistently
+    bool m_flowEcmpRouting;
+    /// A uniform random number generator for randomly routing packets among ECMP
+    Ptr<UniformRandomVariable> m_rand;
+
     /// Container for the network routes
     typedef std::list<std::pair<Ipv4RoutingTableEntry*, uint32_t>> NetworkRoutes;
 

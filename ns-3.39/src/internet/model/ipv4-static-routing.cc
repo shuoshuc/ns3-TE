@@ -29,6 +29,7 @@
 #include "ipv4-route.h"
 #include "ipv4-routing-table-entry.h"
 
+#include "ns3/boolean.h"
 #include "ns3/log.h"
 #include "ns3/names.h"
 #include "ns3/node.h"
@@ -53,14 +54,24 @@ Ipv4StaticRouting::GetTypeId()
     static TypeId tid = TypeId("ns3::Ipv4StaticRouting")
                             .SetParent<Ipv4RoutingProtocol>()
                             .SetGroupName("Internet")
-                            .AddConstructor<Ipv4StaticRouting>();
+                            .AddConstructor<Ipv4StaticRouting>()
+                            .AddAttribute("FlowEcmpRouting",
+                                          "Set to true if flows are randomly "
+                                          "routed among ECMP; set to false for "
+                                          "using only one route consistently",
+                                          BooleanValue(false),
+                                          MakeBooleanAccessor(&Ipv4StaticRouting::m_flowEcmpRouting),
+                                          MakeBooleanChecker());
     return tid;
 }
 
 Ipv4StaticRouting::Ipv4StaticRouting()
-    : m_ipv4(nullptr)
+    : m_flowEcmpRouting(false),
+      m_ipv4(nullptr)
 {
     NS_LOG_FUNCTION(this);
+
+    m_rand = CreateObject<UniformRandomVariable>();
 }
 
 void
@@ -246,6 +257,9 @@ Ipv4StaticRouting::LookupStatic(Ipv4Address dest, Ptr<NetDevice> oif)
     Ptr<Ipv4Route> rtentry = nullptr;
     uint16_t longest_mask = 0;
     uint32_t shortest_metric = 0xffffffff;
+    // store all available routes that bring packets to their destination
+    typedef std::vector<Ipv4RoutingTableEntry*> RouteVec_t;
+    RouteVec_t allRoutes;
     /* when sending on local multicast, there have to be interface specified */
     if (dest.IsLocalMulticast())
     {
@@ -298,6 +312,8 @@ Ipv4StaticRouting::LookupStatic(Ipv4Address dest, Ptr<NetDevice> oif)
                 continue;
             }
             shortest_metric = metric;
+            allRoutes.push_back(j);
+            /*
             Ipv4RoutingTableEntry* route = (j);
             uint32_t interfaceIdx = route->GetInterface();
             rtentry = Create<Ipv4Route>();
@@ -305,11 +321,35 @@ Ipv4StaticRouting::LookupStatic(Ipv4Address dest, Ptr<NetDevice> oif)
             rtentry->SetSource(m_ipv4->SourceAddressSelection(interfaceIdx, route->GetDest()));
             rtentry->SetGateway(route->GetGateway());
             rtentry->SetOutputDevice(m_ipv4->GetNetDevice(interfaceIdx));
+            */
             if (masklen == 32)
             {
                 break;
             }
         }
+    }
+    // ECMP logic is implemented in this section.
+    if (!allRoutes.empty())
+    {
+        // pick up one of the routes uniformly at random if ECMP routing is
+        // enabled, or always select the first route consistently if ECMP
+        // routing is disabled.
+        uint32_t selectIndex;
+        if (m_flowEcmpRouting)
+        {
+            selectIndex = m_rand->GetInteger(0, allRoutes.size() - 1);
+        }
+        else
+        {
+            selectIndex = 0;
+        }
+        Ipv4RoutingTableEntry* route = allRoutes.at(selectIndex);
+        uint32_t interfaceIdx = route->GetInterface();
+        rtentry = Create<Ipv4Route>();
+        rtentry->SetDestination(route->GetDest());
+        rtentry->SetSource(m_ipv4->SourceAddressSelection(interfaceIdx, route->GetDest()));
+        rtentry->SetGateway(route->GetGateway());
+        rtentry->SetOutputDevice(m_ipv4->GetNetDevice(interfaceIdx));
     }
     if (rtentry)
     {
