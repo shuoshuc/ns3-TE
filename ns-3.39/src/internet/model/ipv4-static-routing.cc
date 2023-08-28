@@ -859,13 +859,8 @@ Ipv4StaticRouting::GetFlowHash(const Ipv4Header &header,
     }
 
     oss << sport << dport;
-    uint32_t hash = hasher.GetHash32(oss.str());
 
-    std::cout << "Hash(" << header.GetSource() << ", " << header.GetDestination()
-              << ", " << header.GetProtocol() << ", " << sport << ", " << dport
-              << ") = " << hash << std::endl;
-
-    return hash;
+    return hasher.GetHash32(oss.str());
 }
 
 
