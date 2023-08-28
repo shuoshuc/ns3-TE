@@ -153,12 +153,16 @@ void wipeStaticRoutingTable(Ptr<Node> node,
 }
 
 // Installs default route and localhost route on the specified node. The node
-// must have at least one egress port.
+// must have at least one egress port. Aggregation block does not have to
+// install default route.
 void installLocalAndDefaultRoute(
-    Ptr<Node> node, const Ipv4StaticRoutingHelper &ipv4RoutingHelper) {
+    Ptr<Node> node, const Ipv4StaticRoutingHelper &ipv4RoutingHelper,
+    bool defaultRoute = true) {
   Ptr<Ipv4StaticRouting> staticRouting =
       ipv4RoutingHelper.GetStaticRouting(node->GetObject<Ipv4>());
-  staticRouting->AddNetworkRouteTo(Ipv4Address("0.0.0.0"), Ipv4Mask("/0"), 1);
+  if (defaultRoute) {
+    staticRouting->AddNetworkRouteTo(Ipv4Address("0.0.0.0"), Ipv4Mask("/0"), 1);
+  }
   staticRouting->AddNetworkRouteTo(Ipv4Address("127.0.0.0"), Ipv4Mask("/8"), 0);
 }
 
@@ -188,12 +192,14 @@ int main(int argc, char *argv[]) {
   // All device names are stored as a map:
   // cluster id: {"f2-c1-t1-p1", "f2-c2-ab1-p1", ...}
   std::map<int, std::set<std::string>> pcap_intra_fqdn{
-      {1, {"f2-c1-t1-p1", "f2-c1-ab1-p2"}},
-      {2, {"f2-c2-t11-p1", "f2-c2-ab1-p22"}}};
+      {1, {"f2-c1-t22-p1", "f2-c1-ab1-p44", "f2-c1-t8-p1", "f2-c1-ab1-p16"}},
+      {2, {}}};
   // The FQDNs of inter-cluster devices which should enable pcap trace on.
   // All device names are stored as a map like `pcap_intra_fqdn`.
-  std::map<int, std::set<std::string>> pcap_inter_fqdn{{1, {"f2-c1-ab1-p1"}},
-                                                       {2, {"f2-c2-ab1-p1"}}};
+  std::map<int, std::set<std::string>> pcap_inter_fqdn{
+      //{1, {"f2-c1-ab1-p1"}},
+      //{2, {"f2-c2-ab1-p1"}}
+  };
   // A vector of node names where the routing table of each should be dumped.
   std::vector<std::string> subscribed_routing_tables{};
   // Some constants of the trace name to use.
@@ -212,6 +218,8 @@ int main(int argc, char *argv[]) {
 
   // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
+  Config::SetDefault("ns3::Ipv4StaticRouting::FlowEcmpRouting",
+                     BooleanValue(true));
   GlobalValue::Bind("ChecksumEnabled", BooleanValue(false));
 
   Time::SetResolution(Time::NS);
@@ -436,7 +444,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < NUM_CLUSTER; ++i) {
     Ptr<Node> aggr = cluster_nodes[i]["aggr"].Get(0);
     wipeStaticRoutingTable(aggr, ipv4RoutingHelper);
-    installLocalAndDefaultRoute(aggr, ipv4RoutingHelper);
+    installLocalAndDefaultRoute(aggr, ipv4RoutingHelper, false);
     // Builds intra-cluster routing, including routes on ToRs and host routes on
     // aggregation block.
     NodeContainer &tors = cluster_nodes[i]["tor"];
