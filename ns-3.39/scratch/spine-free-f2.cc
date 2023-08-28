@@ -134,12 +134,14 @@ int getClusterGenByIndex(int idx, std::vector<int> genVec) {
 }
 
 // Callback function to compute flow completion time.
-void calcFCT(const Time &start, const Time &end) {
+void calcFCT(Ptr<OutputStreamWrapper> stream, const Time &start,
+             const Time &end) {
   auto dur = (end - start).ToInteger(Time::NS);
   if (dur <= 0) {
     return;
   }
   NS_LOG_INFO("FCT " << dur << " nsec.");
+  *stream->GetStream() << dur << std::endl;
 }
 
 // Wipes the static routing table on the specified node.
@@ -533,7 +535,11 @@ int main(int argc, char *argv[]) {
     ApplicationContainer client = clientHelper.Install(globalNodeMap[src]);
     // Register callback to measure FCT, there is supposed to be only one app
     // in this container.
-    client.Get(0)->TraceConnectWithoutContext("Fct", MakeCallback(&calcFCT));
+    Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>(
+        "fct-proc" + std::to_string(Simulator::GetSystemId()) + ".csv",
+        std::ios::app);
+    client.Get(0)->TraceConnectWithoutContext(
+        "Fct", MakeBoundCallback(&calcFCT, stream));
     client.Start(NanoSeconds(start_time));
     clientApps.Add(client);
   }
