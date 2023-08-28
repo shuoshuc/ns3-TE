@@ -4,3 +4,4 @@ cmake-cache
 *.pcap
 *.xml
 *.route
+*.csv

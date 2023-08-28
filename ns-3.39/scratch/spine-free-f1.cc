@@ -33,8 +33,8 @@
 #include "ns3/ipv4-address-helper.h"
 #include "ns3/ipv4-global-routing-helper.h"
 #include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/mpi-interface.h"
 #include "ns3/network-module.h"
-#include "ns3/nix-vector-helper.h"
 #include "ns3/on-off-helper.h"
 #include "ns3/packet-sink-helper.h"
 #include "ns3/point-to-point-helper.h"
@@ -52,6 +52,8 @@
 #include <utility>
 #include <vector>
 
+#include <mpi.h>
+
 using namespace ns3;
 // Maps from a string-format stage to a NodeContainer filled with nodes.
 // e.g., 'aggr': {AggregationBlock1}; 'tor': {tor1, tor2, ...}
@@ -63,8 +65,9 @@ using StageDeviceMap = std::map<std::string, NetDeviceContainer>;
 // Ipv4InterfaceContainer filled with interfaces.
 // e.g., 'tor-up': {if1, if2, ...}
 using StageInterfaceMap = std::map<std::string, Ipv4InterfaceContainer>;
-// TM row format: <src, dst, demand, start_time>.
-using TMRow = std::tuple<std::string, std::string, uint64_t, uint64_t>;
+// TM row format: <src, src_idx, dst, dst_idx, demand, start_time>.
+using TMRow = std::tuple<std::string, uint32_t, std::string, uint32_t, uint64_t,
+                         uint64_t>;
 // Complete traffic matrix (not in actual matrix format).
 using TrafficMatrix = std::vector<TMRow>;
 // A link is represented as <src port, dst port>.
@@ -104,12 +107,13 @@ TrafficMatrix readCSV(const std::string &filename) {
     if (parsed_row.empty()) {
       continue;
     }
-    if (parsed_row.size() != 4) {
+    if (parsed_row.size() != 6) {
       NS_LOG_ERROR("Error parsing TM row: " << row);
       continue;
     }
-    tm.push_back({parsed_row[0], parsed_row[1], std::stol(parsed_row[2]),
-                  std::stol(parsed_row[3])});
+    tm.push_back({parsed_row[0], std::stoi(parsed_row[1]), parsed_row[2],
+                  std::stoi(parsed_row[3]), std::stol(parsed_row[4]),
+                  std::stol(parsed_row[5])});
   }
   return tm;
 }
@@ -177,7 +181,7 @@ int main(int argc, char *argv[]) {
   // ===========================
 
   // If true, the simulation will be run using MPI.
-  bool USE_MPI = false;
+  bool useMpi = false;
   // Fabric name.
   std::string NET = "f1";
   // Number of Gen. 1/2/3 clusters.
@@ -214,10 +218,14 @@ int main(int argc, char *argv[]) {
   // Parse command line
   CommandLine cmd(__FILE__);
   cmd.AddValue("tracing", "Enable pcap tracing", tracing);
+  cmd.AddValue("mpi", "Enable distributed simulation", useMpi);
   cmd.AddValue("verbose", "verbose output", verbose);
   cmd.AddValue("trafficInput", "File path of the input traffic demand file",
                trafficInput);
   cmd.Parse(argc, argv);
+
+  GlobalValue::Bind("SimulatorImplementationType",
+                    StringValue("ns3::DistributedSimulatorImpl"));
 
   // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
@@ -234,6 +242,10 @@ int main(int argc, char *argv[]) {
         "PacketSink",
         (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_NODE | LOG_PREFIX_TIME));
   }
+
+  // Enable parallel simulator with the command line arguments
+  MpiInterface::Enable(&argc, &argv);
+  int systemId = MpiInterface::GetSystemId();
 
   // =====================
   // ==                 ==
@@ -270,7 +282,7 @@ int main(int argc, char *argv[]) {
     // Creates aggregation block. Assuming only 1 AggrBlock in each cluster.
     std::string aggr_name = NET + "-c" + std::to_string(i + 1) + "-ab1";
     // Node is created with system id = cluster id.
-    Ptr<Node> aggr = CreateObject<Node>(USE_MPI ? i : Simulator::GetSystemId());
+    Ptr<Node> aggr = CreateObject<Node>(useMpi ? i : 0);
     cluster_nodes[i]["aggr"].Add(aggr);
     globalNodeMap[aggr_name] = aggr;
     for (int p = 1; p <= NUM_AGGR_PORTS; p += 2) {
@@ -295,8 +307,7 @@ int main(int argc, char *argv[]) {
       std::string tor_name =
           NET + "-c" + std::to_string(i + 1) + "-t" + std::to_string(idx + 1);
       // Node is created with system id = cluster id.
-      Ptr<Node> tor =
-          CreateObject<Node>(USE_MPI ? i : Simulator::GetSystemId());
+      Ptr<Node> tor = CreateObject<Node>(useMpi ? i : 0);
       cluster_nodes[i]["tor"].Add(tor);
       globalNodeMap[tor_name] = tor;
       // Establishes AggrBlock-ToR connectivity.
@@ -315,7 +326,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Whether to enable pcap trace on ports specified in `pcap_intra_fqdn`.
-    if (tracing && pcap_intra_fqdn.count(i + 1)) {
+    if (tracing && (!useMpi || systemId == i) && pcap_intra_fqdn.count(i + 1)) {
       for (auto &&fqdn : pcap_intra_fqdn[i + 1]) {
         if (!globalDeviceMap.count(fqdn)) {
           NS_LOG_ERROR(fqdn << " not found in globalDeviceMap!");
@@ -375,7 +386,7 @@ int main(int argc, char *argv[]) {
           std::make_pair(peer_port_name, self_port_name));
 
       // Whether to enable pcap trace on ports specified in `pcap_inter_fqdn`.
-      if (tracing) {
+      if (tracing && (!useMpi || systemId == i)) {
         if (pcap_inter_fqdn.count(i + 1) &&
             pcap_inter_fqdn[i + 1].count(self_port_name)) {
           interClusterLink.EnablePcap(self_port_name + ".pcap", self_port, true,
@@ -515,18 +526,32 @@ int main(int argc, char *argv[]) {
                               InetSocketAddress(Ipv4Address::GetAny(), port));
   ApplicationContainer sinkApps;
   for (int i = 0; i < NUM_CLUSTER; ++i) {
-    sinkApps.Add(sinkHelper.Install(cluster_nodes[i]["tor"]));
+    // If MPI is enabled, only installs sink in the cluster with a matching
+    // systemId.
+    if (!useMpi || systemId == i) {
+      sinkApps.Add(sinkHelper.Install(cluster_nodes[i]["tor"]));
+    }
   }
   sinkApps.Start(Seconds(0.0));
 
   // Creates the BulkSend applications to send. Who sends to who, how much and
   // when to send is determined by the rows in TM.
   ApplicationContainer clientApps;
+  // If MPI is enabled, every process should write to its dedicated file.
+  Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>(
+      "fct-proc" + std::to_string(systemId) + ".csv", std::ios::app);
   for (const TMRow &row : TM) {
     std::string src = std::get<0>(row);
-    std::string dst = std::get<1>(row);
-    uint64_t flow_size = std::get<2>(row);
-    uint64_t start_time = std::get<3>(row);
+    int sidx = std::get<1>(row);
+    std::string dst = std::get<2>(row);
+    // int didx = std::get<3>(row);
+    uint64_t flow_size = std::get<4>(row);
+    uint64_t start_time = std::get<5>(row);
+    // If MPI is enabled, only sets up senders in the cluster with a matching
+    // systemId.
+    if (useMpi && (systemId != sidx - 1)) {
+      continue;
+    }
     Ipv4Address dstAddr =
         globalInterfaceMap[dst + "-p1"]
             .first->GetAddress(globalInterfaceMap[dst + "-p1"].second, 0)
@@ -538,9 +563,6 @@ int main(int argc, char *argv[]) {
     ApplicationContainer client = clientHelper.Install(globalNodeMap[src]);
     // Register callback to measure FCT, there is supposed to be only one app
     // in this container.
-    Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>(
-        "fct-proc" + std::to_string(Simulator::GetSystemId()) + ".csv",
-        std::ios::app);
     client.Get(0)->TraceConnectWithoutContext(
         "Fct", MakeBoundCallback(&calcFCT, stream));
     client.Start(NanoSeconds(start_time));
@@ -559,7 +581,7 @@ int main(int argc, char *argv[]) {
   // routing table. This avoids file access contention.
   Ipv4GlobalRoutingHelper gRouting;
   for (const auto &node : subscribed_routing_tables) {
-    if (globalNodeMap[node]->GetSystemId() != Simulator::GetSystemId()) {
+    if (useMpi && ((int)globalNodeMap[node]->GetSystemId() != systemId)) {
       continue;
     }
     gRouting.PrintRoutingTableAt(
@@ -574,9 +596,11 @@ int main(int argc, char *argv[]) {
 
   // Dump flow stats.
   if (verbose) {
-    flowMonitor->SerializeToXmlFile("SpinefreeF2.xml", true, true);
+    flowMonitor->SerializeToXmlFile("SpinefreeF1.xml", true, true);
   }
   Simulator::Destroy();
 
+  // Exit the MPI execution environment
+  MpiInterface::Disable();
   return 0;
 }
