@@ -36,8 +36,11 @@
 #include "ns3/output-stream-wrapper.h"
 #include "ns3/packet.h"
 #include "ns3/simulator.h"
+#include "ns3/tcp-header.h"
+#include "ns3/udp-header.h"
 
 #include <iomanip>
+#include <sstream>
 
 using std::make_pair;
 
@@ -47,6 +50,9 @@ namespace ns3
 NS_LOG_COMPONENT_DEFINE("Ipv4StaticRouting");
 
 NS_OBJECT_ENSURE_REGISTERED(Ipv4StaticRouting);
+
+const uint8_t TCP_PROT_NUMBER = 6;
+const uint8_t UDP_PROT_NUMBER = 17;
 
 TypeId
 Ipv4StaticRouting::GetTypeId()
@@ -67,11 +73,15 @@ Ipv4StaticRouting::GetTypeId()
 
 Ipv4StaticRouting::Ipv4StaticRouting()
     : m_flowEcmpRouting(false),
+      m_seed(0),
       m_ipv4(nullptr)
 {
     NS_LOG_FUNCTION(this);
 
     m_rand = CreateObject<UniformRandomVariable>();
+
+    // hasher for ecmp.
+    hasher = Hasher();
 }
 
 void
@@ -251,9 +261,11 @@ Ipv4StaticRouting::LookupRoute(const Ipv4RoutingTableEntry& route, uint32_t metr
 }
 
 Ptr<Ipv4Route>
-Ipv4StaticRouting::LookupStatic(Ipv4Address dest, Ptr<NetDevice> oif)
+Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
+                                Ptr<const Packet> ipPayload, Ptr<NetDevice> oif)
 {
-    NS_LOG_FUNCTION(this << dest << " " << oif);
+    NS_LOG_FUNCTION(this << header << " " << oif);
+    Ipv4Address dest = header.GetDestination();
     Ptr<Ipv4Route> rtentry = nullptr;
     uint16_t longest_mask = 0;
     uint32_t shortest_metric = 0xffffffff;
@@ -313,15 +325,6 @@ Ipv4StaticRouting::LookupStatic(Ipv4Address dest, Ptr<NetDevice> oif)
             }
             shortest_metric = metric;
             allRoutes.push_back(j);
-            /*
-            Ipv4RoutingTableEntry* route = (j);
-            uint32_t interfaceIdx = route->GetInterface();
-            rtentry = Create<Ipv4Route>();
-            rtentry->SetDestination(route->GetDest());
-            rtentry->SetSource(m_ipv4->SourceAddressSelection(interfaceIdx, route->GetDest()));
-            rtentry->SetGateway(route->GetGateway());
-            rtentry->SetOutputDevice(m_ipv4->GetNetDevice(interfaceIdx));
-            */
             if (masklen == 32)
             {
                 break;
@@ -333,11 +336,15 @@ Ipv4StaticRouting::LookupStatic(Ipv4Address dest, Ptr<NetDevice> oif)
     {
         // pick up one of the routes uniformly at random if ECMP routing is
         // enabled, or always select the first route consistently if ECMP
-        // routing is disabled.
+        // routing is disabled. Note that for non-supported transport protocols
+        // (anything other than TCP and UDP), the hash value is always 0, so it
+        // falls back to non-ECMP mode.
         uint32_t selectIndex;
         if (m_flowEcmpRouting)
         {
-            selectIndex = m_rand->GetInteger(0, allRoutes.size() - 1);
+            uint32_t hash = GetFlowHash(header, ipPayload);
+            //selectIndex = m_rand->GetInteger(0, allRoutes.size() - 1);
+            selectIndex = hash % allRoutes.size();
         }
         else
         {
@@ -527,7 +534,7 @@ Ipv4StaticRouting::RouteOutput(Ptr<Packet> p,
         // So, we just log it and fall through to LookupStatic ()
         NS_LOG_LOGIC("RouteOutput()::Multicast destination");
     }
-    rtentry = LookupStatic(destination, oif);
+    rtentry = LookupStatic(header, p, oif);
     if (rtentry)
     {
         sockerr = Socket::ERROR_NOTERROR;
@@ -605,7 +612,7 @@ Ipv4StaticRouting::RouteInput(Ptr<const Packet> p,
         return true;
     }
     // Next, try to find a route
-    Ptr<Ipv4Route> rtentry = LookupStatic(ipHeader.GetDestination());
+    Ptr<Ipv4Route> rtentry = LookupStatic(ipHeader, p);
     if (rtentry)
     {
         NS_LOG_LOGIC("Found unicast destination- calling unicast callback");
@@ -811,5 +818,55 @@ Ipv4StaticRouting::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit
     // Restore the previous ostream state
     (*os).copyfmt(oldState);
 }
+
+uint32_t
+Ipv4StaticRouting::GetFlowHash(const Ipv4Header &header,
+                               Ptr<const Packet> ipPayload)
+{
+    NS_LOG_FUNCTION(this << header);
+    Ptr<Node> node = m_ipv4->GetObject<Node>();
+
+    hasher.clear();
+    std::ostringstream oss;
+    oss << header.GetSource() << header.GetDestination() << header.GetProtocol()
+        << m_seed;
+
+    uint16_t sport, dport;
+    switch (header.GetProtocol())
+    {
+        case UDP_PROT_NUMBER:
+            {
+                UdpHeader udpHeader;
+                ipPayload->PeekHeader(udpHeader);
+                sport = udpHeader.GetSourcePort();
+                dport = udpHeader.GetDestinationPort();
+                break;
+            }
+        case TCP_PROT_NUMBER:
+            {
+                TcpHeader tcpHeader;
+                ipPayload->PeekHeader(tcpHeader);
+                sport = tcpHeader.GetSourcePort();
+                dport = tcpHeader.GetDestinationPort();
+                break;
+            }
+        default:
+            {
+                NS_LOG_INFO("GetFlowHash() unsupported protocol type "
+                            << header.GetProtocol());
+                break;
+            }
+    }
+
+    oss << sport << dport;
+    uint32_t hash = hasher.GetHash32(oss.str());
+
+    std::cout << "Hash(" << header.GetSource() << ", " << header.GetDestination()
+              << ", " << header.GetProtocol() << ", " << sport << ", " << dport
+              << ") = " << hash << std::endl;
+
+    return hash;
+}
+
 
 } // namespace ns3

@@ -21,6 +21,7 @@
 #ifndef IPV4_STATIC_ROUTING_H
 #define IPV4_STATIC_ROUTING_H
 
+#include "ns3/hash.h"
 #include "ns3/ipv4-address.h"
 #include "ns3/ipv4-header.h"
 #include "ns3/ipv4-routing-protocol.h"
@@ -366,8 +367,12 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
     /// Set to true if flows are randomly routed among ECMP; set to false for using only one route
     /// consistently
     bool m_flowEcmpRouting;
+
     /// A uniform random number generator for randomly routing packets among ECMP
     Ptr<UniformRandomVariable> m_rand;
+
+    /// A seed used when computing flow hash.
+    uint32_t m_seed;
 
     /// Container for the network routes
     typedef std::list<std::pair<Ipv4RoutingTableEntry*, uint32_t>> NetworkRoutes;
@@ -397,11 +402,14 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
 
     /**
      * \brief Lookup in the forwarding table for destination.
-     * \param dest destination address
+     * \param Ipv4 packet header
+     * \param Ipv4 packet payload
      * \param oif output interface if any (put 0 otherwise)
      * \return Ipv4Route to route the packet to reach dest address
      */
-    Ptr<Ipv4Route> LookupStatic(Ipv4Address dest, Ptr<NetDevice> oif = nullptr);
+    Ptr<Ipv4Route> LookupStatic(const Ipv4Header &header,
+                                Ptr<const Packet> ipPayload,
+                                Ptr<NetDevice> oif = nullptr);
 
     /**
      * \brief Lookup in the multicast forwarding table for destination.
@@ -411,6 +419,14 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
      * \return Ipv4MulticastRoute to route the packet to reach dest address
      */
     Ptr<Ipv4MulticastRoute> LookupStatic(Ipv4Address origin, Ipv4Address group, uint32_t interface);
+
+    /**
+     * \brief Computes a flow hash using 5 tuples.
+     * \param Ipv4 packet header
+     * \param Ipv4 packet payload
+     * \return 32-bit hash value
+     */
+    uint32_t GetFlowHash(const Ipv4Header &header, Ptr<const Packet> ipPayload);
 
     /**
      * \brief the forwarding table for network.
@@ -426,6 +442,11 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
      * \brief Ipv4 reference.
      */
     Ptr<Ipv4> m_ipv4;
+
+    /**
+     * \brief a hash helper library.
+     */
+    Hasher hasher;
 };
 
 } // Namespace ns3
