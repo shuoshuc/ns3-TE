@@ -126,7 +126,7 @@ int main(int argc, char *argv[]) {
     if (i == 1) {
       staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("/24"),
                                        1);
-      std::map<int, int> weights{{2, 1000}, {3, 3}};
+      std::map<int, int> weights{{2, 3}, {3, 1000}};
       std::vector<int> group;
       for (const auto& [interface, weight] : weights) {
         std::vector<int> vec(weight, interface);

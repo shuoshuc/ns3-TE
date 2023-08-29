@@ -362,7 +362,7 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
         // falls back to non-ECMP mode.
         uint32_t interfaceIdx;
         Ipv4RoutingTableEntry* route = allRoutes.at(0);
-        if (m_flowEcmpRouting)
+        if (m_flowEcmpRouting && route->GroupSize())
         {
             uint32_t hash = GetFlowHash(header, ipPayload);
             interfaceIdx = route->LookupGroup(hash % route->GroupSize());

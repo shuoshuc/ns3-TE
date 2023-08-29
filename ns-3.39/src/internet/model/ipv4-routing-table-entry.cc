@@ -40,7 +40,8 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(const Ipv4RoutingTableEntry& route)
     : m_dest(route.m_dest),
       m_destNetworkMask(route.m_destNetworkMask),
       m_gateway(route.m_gateway),
-      m_interface(route.m_interface)
+      m_interface(route.m_interface),
+      m_group(route.m_group)
 {
     NS_LOG_FUNCTION(this << route);
 }
@@ -49,7 +50,8 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(const Ipv4RoutingTableEntry* route)
     : m_dest(route->m_dest),
       m_destNetworkMask(route->m_destNetworkMask),
       m_gateway(route->m_gateway),
-      m_interface(route->m_interface)
+      m_interface(route->m_interface),
+      m_group(route->m_group)
 {
     NS_LOG_FUNCTION(this << route);
 }
