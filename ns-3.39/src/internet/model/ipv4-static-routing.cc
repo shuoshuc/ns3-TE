@@ -123,6 +123,27 @@ Ipv4StaticRouting::AddNetworkRouteTo(Ipv4Address network,
 }
 
 void
+Ipv4StaticRouting::AddNetworkRouteTo(Ipv4Address network,
+                                     Ipv4Mask networkMask,
+                                     uint32_t interface,
+                                     std::vector<int> group,
+                                     uint32_t metric)
+{
+    NS_LOG_FUNCTION(this << network << " " << networkMask << " " << interface
+                    << " " << group << " " << metric);
+
+    Ipv4RoutingTableEntry route =
+        Ipv4RoutingTableEntry::CreateNetworkRouteTo(network, networkMask,
+                                                    interface, group);
+    if (!LookupRoute(route, metric))
+    {
+        Ipv4RoutingTableEntry* routePtr = new Ipv4RoutingTableEntry(route);
+
+        m_networkRoutes.emplace_back(routePtr, metric);
+    }
+}
+
+void
 Ipv4StaticRouting::AddHostRouteTo(Ipv4Address dest,
                                   Ipv4Address nextHop,
                                   uint32_t interface,
@@ -339,6 +360,19 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
         // routing is disabled. Note that for non-supported transport protocols
         // (anything other than TCP and UDP), the hash value is always 0, so it
         // falls back to non-ECMP mode.
+        uint32_t interfaceIdx;
+        Ipv4RoutingTableEntry* route = allRoutes.at(0);
+        if (m_flowEcmpRouting)
+        {
+            uint32_t hash = GetFlowHash(header, ipPayload);
+            interfaceIdx = route->LookupGroup(hash % route->GroupSize());
+        }
+        else
+        {
+            interfaceIdx = route->GetInterface();
+        }
+
+        /*
         uint32_t selectIndex;
         if (m_flowEcmpRouting)
         {
@@ -352,6 +386,7 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
         }
         Ipv4RoutingTableEntry* route = allRoutes.at(selectIndex);
         uint32_t interfaceIdx = route->GetInterface();
+        */
         rtentry = Create<Ipv4Route>();
         rtentry->SetDestination(route->GetDest());
         rtentry->SetSource(m_ipv4->SourceAddressSelection(interfaceIdx, route->GetDest()));

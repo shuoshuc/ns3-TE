@@ -90,6 +90,14 @@ class Ipv4RoutingTableEntry
      */
     uint32_t GetInterface() const;
     /**
+     * \return The number of egress entries (replicated interfaces) in the group.
+     */
+    uint32_t GroupSize() const;
+    /**
+     * \return The egress interface at location index in the group.
+     */
+    int LookupGroup(int index) const;
+    /**
      * \return An Ipv4RoutingTableEntry object corresponding to the input parameters.
      * \param dest Ipv4Address of the destination
      * \param nextHop Ipv4Address of the next hop
@@ -124,6 +132,18 @@ class Ipv4RoutingTableEntry
     static Ipv4RoutingTableEntry CreateNetworkRouteTo(Ipv4Address network,
                                                       Ipv4Mask networkMask,
                                                       uint32_t interface);
+
+    /**
+     * \return An Ipv4RoutingTableEntry object corresponding to the input parameters.
+     * \param network Ipv4Address of the destination network
+     * \param networkMask Ipv4Mask of the destination network mask
+     * \param interface Outgoing interface
+     * \param group WCMP group of outgoing interface
+     */
+    static Ipv4RoutingTableEntry CreateNetworkRouteTo(Ipv4Address network,
+                                                      Ipv4Mask networkMask,
+                                                      uint32_t interface,
+                                                      std::vector<int> group);
     /**
      * \return An Ipv4RoutingTableEntry object corresponding to the input
      * parameters.  This route is distinguished; it will match any
@@ -155,6 +175,15 @@ class Ipv4RoutingTableEntry
     /**
      * \brief Constructor.
      * \param dest destination address
+     * \param mask network mask
+     * \param interface the interface index (it is the shortest path interface)
+     * \param group WCMP group
+     */
+    Ipv4RoutingTableEntry(Ipv4Address dest, Ipv4Mask mask, uint32_t interface,
+                          std::vector<int> group);
+    /**
+     * \brief Constructor.
+     * \param dest destination address
      * \param gateway the gateway
      * \param interface the interface index
      */
@@ -170,6 +199,7 @@ class Ipv4RoutingTableEntry
     Ipv4Mask m_destNetworkMask; //!< destination network mask
     Ipv4Address m_gateway;      //!< gateway
     uint32_t m_interface;       //!< output interface
+    std::vector<int> m_group; //!< WCMP group of egress interfaces.
 };
 
 /**

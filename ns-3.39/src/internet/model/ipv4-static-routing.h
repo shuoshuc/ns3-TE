@@ -33,6 +33,7 @@
 #include <list>
 #include <stdint.h>
 #include <utility>
+#include <vector>
 
 namespace ns3
 {
@@ -130,6 +131,24 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
     void AddNetworkRouteTo(Ipv4Address network,
                            Ipv4Mask networkMask,
                            uint32_t interface,
+                           uint32_t metric = 0);
+
+    /**
+     * \brief Add a network route to the static routing table.
+     *
+     * \param network The Ipv4Address network for this route.
+     * \param networkMask The Ipv4Mask to extract the network.
+     * \param interface The network interface index used to send packets to the
+     * destination.
+     * \param group WCMP group of egress interfaces.
+     * \param metric Metric of route in case of multiple routes to same destination
+     *
+     * \see Ipv4Address
+     */
+    void AddNetworkRouteTo(Ipv4Address network,
+                           Ipv4Mask networkMask,
+                           uint32_t interface,
+                           std::vector<int> group,
                            uint32_t metric = 0);
 
     /**

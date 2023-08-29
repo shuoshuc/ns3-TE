@@ -95,6 +95,19 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(Ipv4Address network,
     NS_LOG_FUNCTION(this << network << networkMask << interface);
 }
 
+Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(Ipv4Address network,
+                                             Ipv4Mask networkMask,
+                                             uint32_t interface,
+                                             std::vector<int> group)
+    : m_dest(network),
+      m_destNetworkMask(networkMask),
+      m_gateway(Ipv4Address::GetZero()),
+      m_interface(interface),
+      m_group(group)
+{
+    NS_LOG_FUNCTION(this << network << networkMask << interface << group);
+}
+
 bool
 Ipv4RoutingTableEntry::IsHost() const
 {
@@ -158,6 +171,22 @@ Ipv4RoutingTableEntry::GetInterface() const
     return m_interface;
 }
 
+uint32_t
+Ipv4RoutingTableEntry::GroupSize() const
+{
+    NS_LOG_FUNCTION(this);
+    return m_group.size();
+}
+
+int
+Ipv4RoutingTableEntry::LookupGroup(int index) const
+{
+    NS_LOG_FUNCTION(this);
+    NS_ASSERT_MSG((uint32_t)index < m_group.size(),
+                  "Ipv4RoutingTableEntry::LookupGroup(): index out of bounds");
+    return m_group[index];
+}
+
 Ipv4RoutingTableEntry
 Ipv4RoutingTableEntry::CreateHostRouteTo(Ipv4Address dest, Ipv4Address nextHop, uint32_t interface)
 {
@@ -189,6 +218,16 @@ Ipv4RoutingTableEntry::CreateNetworkRouteTo(Ipv4Address network,
 {
     NS_LOG_FUNCTION(network << networkMask << interface);
     return Ipv4RoutingTableEntry(network, networkMask, interface);
+}
+
+Ipv4RoutingTableEntry
+Ipv4RoutingTableEntry::CreateNetworkRouteTo(Ipv4Address network,
+                                            Ipv4Mask networkMask,
+                                            uint32_t interface,
+                                            std::vector<int> group)
+{
+    NS_LOG_FUNCTION(network << networkMask << interface << group);
+    return Ipv4RoutingTableEntry(network, networkMask, interface, group);
 }
 
 Ipv4RoutingTableEntry

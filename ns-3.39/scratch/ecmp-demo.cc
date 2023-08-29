@@ -26,7 +26,9 @@
 #include <cassert>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <string>
+#include <vector>
 
 using namespace ns3;
 
@@ -124,10 +126,14 @@ int main(int argc, char *argv[]) {
     if (i == 1) {
       staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("/24"),
                                        1);
+      std::map<int, int> weights{{2, 1000}, {3, 3}};
+      std::vector<int> group;
+      for (const auto& [interface, weight] : weights) {
+        std::vector<int> vec(weight, interface);
+        group.insert(std::end(group), std::begin(vec), std::end(vec));
+      }
       staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.4.0"), Ipv4Mask("/24"),
-                                       2);
-      staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.4.0"), Ipv4Mask("/24"),
-                                       3);
+                                       2, group);
     }
     if (i == 4) {
       staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("/24"),
@@ -143,10 +149,10 @@ int main(int argc, char *argv[]) {
   NS_LOG_INFO("Create Applications.");
   uint16_t port = 9; // Discard port (RFC 863)
   ApplicationContainer apps;
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < 10; ++i) {
     BulkSendHelper bulk("ns3::TcpSocketFactory",
                         InetSocketAddress(i4i5.GetAddress(1), port));
-    bulk.SetAttribute("MaxBytes", UintegerValue(10000 * (i + 1)));
+    bulk.SetAttribute("MaxBytes", UintegerValue(1000));
     apps = bulk.Install(c.Get(0));
     apps.Start(Seconds(1.0));
     apps.Stop(Seconds(10.0));
