@@ -224,14 +224,30 @@ int main(int argc, char *argv[]) {
                trafficInput);
   cmd.Parse(argc, argv);
 
+  // ===========================
+  // ==                       ==
+  // == Global configurations ==
+  // ==                       ==
+  // ===========================
   GlobalValue::Bind("SimulatorImplementationType",
                     StringValue("ns3::DistributedSimulatorImpl"));
-
   // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowEcmpRouting",
                      BooleanValue(true));
   GlobalValue::Bind("ChecksumEnabled", BooleanValue(false));
+  /*
+  // Sets default CCA to CUBIC.
+  Config::SetDefault("ns3::TcpL4Protocol::SocketType",
+                     StringValue("ns3::TcpCubic"));
+  */
+  // DCTCP with RED router.
+  Config::SetDefault("ns3::TcpL4Protocol::SocketType",
+                     StringValue("ns3::TcpDctcp"));
+  Config::SetDefault("ns3::RedQueueDisc::UseEcn", BooleanValue(true));
+  Config::SetDefault("ns3::RedQueueDisc::QW", DoubleValue(1.0));
+  Config::SetDefault("ns3::RedQueueDisc::MinTh", DoubleValue(16));
+  Config::SetDefault("ns3::RedQueueDisc::MaxTh", DoubleValue(16));
 
   Time::SetResolution(Time::NS);
   LogComponentEnable("SpinefreeF1",
