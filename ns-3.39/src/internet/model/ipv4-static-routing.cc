@@ -352,14 +352,16 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
             }
         }
     }
-    // ECMP logic is implemented in this section.
+    // Load balancing logic is implemented in this section.
     if (!allRoutes.empty())
     {
-        // pick up one of the routes uniformly at random if ECMP routing is
-        // enabled, or always select the first route consistently if ECMP
-        // routing is disabled. Note that for non-supported transport protocols
-        // (anything other than TCP and UDP), the hash value is always 0, so it
-        // falls back to non-ECMP mode.
+        // Only 1 matching route is expected. If more than 1 is found, always
+        // use the first one. For load balancing, users should not create
+        // multiple equivalent routes but use 1 route + group instead. When
+        // flowEcmpRouting is disabled or there is no group to use, egress via
+        // the default egress interface as a fallback. Note that for
+        // non-supported transport protocols (anything other than TCP and UDP),
+        // the hash value is always 0, so it falls back to non-ECMP mode.
         uint32_t interfaceIdx;
         Ipv4RoutingTableEntry* route = allRoutes.at(0);
         if (m_flowEcmpRouting && route->GroupSize())
@@ -372,21 +374,6 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
             interfaceIdx = route->GetInterface();
         }
 
-        /*
-        uint32_t selectIndex;
-        if (m_flowEcmpRouting)
-        {
-            uint32_t hash = GetFlowHash(header, ipPayload);
-            //selectIndex = m_rand->GetInteger(0, allRoutes.size() - 1);
-            selectIndex = hash % allRoutes.size();
-        }
-        else
-        {
-            selectIndex = 0;
-        }
-        Ipv4RoutingTableEntry* route = allRoutes.at(selectIndex);
-        uint32_t interfaceIdx = route->GetInterface();
-        */
         rtentry = Create<Ipv4Route>();
         rtentry->SetDestination(route->GetDest());
         rtentry->SetSource(m_ipv4->SourceAddressSelection(interfaceIdx, route->GetDest()));
