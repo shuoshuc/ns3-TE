@@ -14,6 +14,24 @@
  *
  */
 
+
+/*
+ * Network topology:
+ *
+ *                         n2
+ *                        ^  \
+ *                       /    \
+ *                      /      \
+ *                     /        v
+ *       n0 --------> n1         n4 ------> n5
+ *                     \        ^
+ *                      \      /
+ *                       \    /
+ *                        v  /
+ *                         n3
+ */
+
+
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
 #include "ns3/flow-monitor-helper.h"
