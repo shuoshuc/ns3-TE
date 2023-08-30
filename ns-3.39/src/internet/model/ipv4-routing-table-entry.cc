@@ -22,6 +22,9 @@
 #include "ns3/assert.h"
 #include "ns3/log.h"
 
+#include <map>
+#include <string>
+
 namespace ns3
 {
 
@@ -187,6 +190,22 @@ Ipv4RoutingTableEntry::LookupGroup(int index) const
     NS_ASSERT_MSG((uint32_t)index < m_group.size(),
                   "Ipv4RoutingTableEntry::LookupGroup(): index out of bounds");
     return m_group[index];
+}
+
+std::string
+Ipv4RoutingTableEntry::PrintGroup() const
+{
+    NS_LOG_FUNCTION(this);
+    std::string output = "{ ";
+    // Counts occurences of egress ports in a group.
+    std::map<int, int> group_count;
+    for (const auto& interface : m_group) {
+        group_count[interface] += 1;
+    }
+    for (const auto& [interface, weight] : group_count) {
+        output += "[" + std::to_string(interface) + ": " + std::to_string(weight) + "] ";
+    }
+    return output + "}";
 }
 
 Ipv4RoutingTableEntry

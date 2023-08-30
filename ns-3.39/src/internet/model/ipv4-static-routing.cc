@@ -793,7 +793,7 @@ Ipv4StaticRouting::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit
 
     if (GetNRoutes() > 0)
     {
-        *os << "Destination     Gateway         Genmask         Flags Metric Ref    Use Iface"
+        *os << "Destination     Gateway         Genmask         Flags Metric Ref    Use Iface Group"
             << std::endl;
         for (uint32_t j = 0; j < GetNRoutes(); j++)
         {
@@ -827,11 +827,20 @@ Ipv4StaticRouting::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit
                 << "   ";
             if (!Names::FindName(m_ipv4->GetNetDevice(route.GetInterface())).empty())
             {
-                *os << Names::FindName(m_ipv4->GetNetDevice(route.GetInterface()));
+                *os << std::setw(6) << Names::FindName(m_ipv4->GetNetDevice(route.GetInterface()));
             }
             else
             {
-                *os << route.GetInterface();
+                *os << std::setw(6) << route.GetInterface();
+            }
+
+            if (route.GroupSize())
+            {
+                *os << std::setw(5) << route.PrintGroup();
+            }
+            else
+            {
+                *os << std::setw(5) << "-";
             }
             *os << std::endl;
         }

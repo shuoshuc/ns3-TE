@@ -98,6 +98,10 @@ class Ipv4RoutingTableEntry
      */
     int LookupGroup(int index) const;
     /**
+     * \return The formatted group as map-style string representation.
+     */
+    std::string PrintGroup() const;
+    /**
      * \return An Ipv4RoutingTableEntry object corresponding to the input parameters.
      * \param dest Ipv4Address of the destination
      * \param nextHop Ipv4Address of the next hop
