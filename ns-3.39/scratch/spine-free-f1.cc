@@ -98,7 +98,7 @@ std::vector<std::string> readCSVRow(const std::string &row) {
   return fields;
 }
 
-TrafficMatrix readCSV(const std::string &filename) {
+TrafficMatrix readTM(const std::string &filename) {
   std::ifstream tm_file(filename);
   TrafficMatrix tm;
   std::string row;
@@ -533,7 +533,7 @@ int main(int argc, char *argv[]) {
   NS_LOG_INFO("Generate traffic.");
 
   // Load in the TM file.
-  TrafficMatrix TM = readCSV(trafficInput);
+  TrafficMatrix TM = readTM(trafficInput);
   NS_LOG_INFO("Trace entries: " << TM.size());
 
   // Creates a packet sink on all ToRs.
