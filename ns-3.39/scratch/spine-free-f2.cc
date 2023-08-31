@@ -205,11 +205,11 @@ int main(int argc, char *argv[]) {
   // A vector of node names where the routing table of each should be dumped.
   std::vector<std::string> subscribed_routing_tables{};
   // Some constants of the trace name to use.
-  std::string MSFT_WEB_TRACE = "./trace/f2-msft-web.csv";
+  std::string MSFT_WEB_TRACE = "./inputs/f2-msft-web.csv";
 
   bool tracing = false;
   bool verbose = false;
-  std::string trafficInput = "./trace/test.csv";
+  std::string trafficInput = "./inputs/test.csv";
   // Parse command line
   CommandLine cmd(__FILE__);
   cmd.AddValue("tracing", "Enable pcap tracing", tracing);
