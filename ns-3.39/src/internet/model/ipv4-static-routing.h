@@ -140,6 +140,7 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
      * \param networkMask The Ipv4Mask to extract the network.
      * \param interface The network interface index used to send packets to the
      * destination.
+     * \param group_type type of WCMP group.
      * \param group WCMP group of egress interfaces.
      * \param metric Metric of route in case of multiple routes to same destination
      *
@@ -148,6 +149,7 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
     void AddNetworkRouteTo(Ipv4Address network,
                            Ipv4Mask networkMask,
                            uint32_t interface,
+                           int group_type,
                            std::vector<int> group,
                            uint32_t metric = 0);
 

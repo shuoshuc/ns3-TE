@@ -44,7 +44,8 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(const Ipv4RoutingTableEntry& route)
       m_destNetworkMask(route.m_destNetworkMask),
       m_gateway(route.m_gateway),
       m_interface(route.m_interface),
-      m_group(route.m_group)
+      m_group(route.m_group),
+      m_group_type(route.m_group_type)
 {
     NS_LOG_FUNCTION(this << route);
 }
@@ -54,7 +55,8 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(const Ipv4RoutingTableEntry* route)
       m_destNetworkMask(route->m_destNetworkMask),
       m_gateway(route->m_gateway),
       m_interface(route->m_interface),
-      m_group(route->m_group)
+      m_group(route->m_group),
+      m_group_type(route->m_group_type)
 {
     NS_LOG_FUNCTION(this << route);
 }
@@ -103,14 +105,17 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(Ipv4Address network,
 Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(Ipv4Address network,
                                              Ipv4Mask networkMask,
                                              uint32_t interface,
+                                             int group_type,
                                              std::vector<int> group)
     : m_dest(network),
       m_destNetworkMask(networkMask),
       m_gateway(Ipv4Address::GetZero()),
       m_interface(interface),
-      m_group(group)
+      m_group(group),
+      m_group_type(group_type)
 {
-    NS_LOG_FUNCTION(this << network << networkMask << interface << group);
+    NS_LOG_FUNCTION(this << network << networkMask << interface << group_type
+                    << group);
 }
 
 bool
@@ -192,6 +197,13 @@ Ipv4RoutingTableEntry::LookupGroup(int index) const
     return m_group[index];
 }
 
+int
+Ipv4RoutingTableEntry::GetGroupType() const
+{
+    NS_LOG_FUNCTION(this);
+    return m_group_type;
+}
+
 std::string
 Ipv4RoutingTableEntry::PrintGroup() const
 {
@@ -245,10 +257,12 @@ Ipv4RoutingTableEntry
 Ipv4RoutingTableEntry::CreateNetworkRouteTo(Ipv4Address network,
                                             Ipv4Mask networkMask,
                                             uint32_t interface,
+                                            int group_type,
                                             std::vector<int> group)
 {
     NS_LOG_FUNCTION(network << networkMask << interface << group);
-    return Ipv4RoutingTableEntry(network, networkMask, interface, group);
+    return Ipv4RoutingTableEntry(network, networkMask, interface, group_type,
+                                 group);
 }
 
 Ipv4RoutingTableEntry

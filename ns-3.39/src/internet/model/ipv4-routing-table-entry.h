@@ -98,6 +98,10 @@ class Ipv4RoutingTableEntry
      */
     int LookupGroup(int index) const;
     /**
+     * \return The group type.
+     */
+    int GetGroupType() const;
+    /**
      * \return The formatted group as map-style string representation.
      */
     std::string PrintGroup() const;
@@ -142,11 +146,13 @@ class Ipv4RoutingTableEntry
      * \param network Ipv4Address of the destination network
      * \param networkMask Ipv4Mask of the destination network mask
      * \param interface Outgoing interface
+     * \param group_type type of WCMP group
      * \param group WCMP group of outgoing interface
      */
     static Ipv4RoutingTableEntry CreateNetworkRouteTo(Ipv4Address network,
                                                       Ipv4Mask networkMask,
                                                       uint32_t interface,
+                                                      int group_type,
                                                       std::vector<int> group);
     /**
      * \return An Ipv4RoutingTableEntry object corresponding to the input
@@ -181,10 +187,11 @@ class Ipv4RoutingTableEntry
      * \param dest destination address
      * \param mask network mask
      * \param interface the interface index (it is the shortest path interface)
+     * \param group_type type of WCMP group (SRC or TRANSIT)
      * \param group WCMP group
      */
     Ipv4RoutingTableEntry(Ipv4Address dest, Ipv4Mask mask, uint32_t interface,
-                          std::vector<int> group);
+                          int group_type, std::vector<int> group);
     /**
      * \brief Constructor.
      * \param dest destination address
@@ -203,7 +210,8 @@ class Ipv4RoutingTableEntry
     Ipv4Mask m_destNetworkMask; //!< destination network mask
     Ipv4Address m_gateway;      //!< gateway
     uint32_t m_interface;       //!< output interface
-    std::vector<int> m_group; //!< WCMP group of egress interfaces.
+    std::vector<int> m_group;   //!< WCMP group of egress interfaces.
+    int m_group_type = 0;       //!< WCMP group type.
 };
 
 /**

@@ -70,6 +70,11 @@ using TMRow = std::tuple<std::string, uint32_t, std::string, uint32_t, uint64_t,
                          uint64_t>;
 // Complete traffic matrix (not in actual matrix format).
 using TrafficMatrix = std::vector<TMRow>;
+// TE row format: <group_type, src, dst, dst prefix (Ipv4Address), group>.
+using TERow = std::tuple<uint32_t, std::string, std::string, Ipv4Address,
+                         std::vector<int>>;
+// Complete TE implementation.
+using TEImpl = std::vector<TERow>;
 // A link is represented as <src port, dst port>.
 using Link = std::pair<std::string, std::string>;
 
@@ -116,6 +121,47 @@ TrafficMatrix readTM(const std::string &filename) {
                   std::stol(parsed_row[5])});
   }
   return tm;
+}
+
+TEImpl readTEImpl(const std::string &filename, int NUM_TOR, int NUM_AGGR_PORTS) {
+  std::ifstream te_file(filename);
+  TEImpl te;
+  std::string row;
+  while (std::getline(te_file, row)) {
+    std::vector<int> weight_vec, group;
+    std::vector<std::string> parsed_row = readCSVRow(row);
+    if (parsed_row.empty()) {
+      continue;
+    }
+    for (uint32_t loc = 3; loc < parsed_row.size(); ++loc) {
+        weight_vec.push_back(std::stoi(parsed_row[loc]));
+    }
+    if ((int)weight_vec.size() != NUM_AGGR_PORTS) {
+      NS_LOG_ERROR("Error parsing TEImpl row: " << row);
+      continue;
+    }
+    for (uint32_t i = 0; i < weight_vec.size(); ++i) {
+        if (!weight_vec[i]) {
+            continue;
+        }
+        int if_id = i / 2 + 1 + NUM_TOR;
+        for (int repeat = 0; repeat < weight_vec[i]; ++repeat) {
+            group.push_back(if_id);
+        }
+    }
+    // Splits the aggregation block name by '-' and extracts the dst cluster id.
+    std::stringstream ss(parsed_row[2]);
+    std::string segment;
+    std::vector<std::string> seglist;
+    while(std::getline(ss, segment, '-')) {
+        seglist.push_back(segment);
+    }
+    std::string prefix = "10." + seglist[1].erase(0, 1) + ".1.0";
+    // Format: group type, src aggregation block name, dst prefix, group.
+    te.push_back({std::stoi(parsed_row[0]), parsed_row[1], parsed_row[2],
+                  Ipv4Address(prefix.c_str()), group});
+  }
+  return te;
 }
 
 // Looks up the corresponding generation for a given cluster index. The second
@@ -215,6 +261,7 @@ int main(int argc, char *argv[]) {
   bool tracing = false;
   bool verbose = false;
   std::string trafficInput = "./inputs/test.csv";
+  std::string teInput = "./inputs/te_impl.csv";
   // Parse command line
   CommandLine cmd(__FILE__);
   cmd.AddValue("tracing", "Enable pcap tracing", tracing);
@@ -222,6 +269,8 @@ int main(int argc, char *argv[]) {
   cmd.AddValue("verbose", "verbose output", verbose);
   cmd.AddValue("trafficInput", "File path of the input traffic demand file",
                trafficInput);
+  cmd.AddValue("teInput", "File path of the input TE implementation file",
+               teInput);
   cmd.Parse(argc, argv);
 
   // ===========================
@@ -471,7 +520,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Builds static routing table for all nodes.
+  // Builds static host routes for all nodes.
   Ipv4StaticRoutingHelper ipv4RoutingHelper;
   for (int i = 0; i < NUM_CLUSTER; ++i) {
     Ptr<Node> aggr = cluster_nodes[i]["aggr"].Get(0);
@@ -498,28 +547,29 @@ int main(int argc, char *argv[]) {
       // Host routes are always /32.
       staticRouting->AddNetworkRouteTo(torAddr, Ipv4Mask("/32"), aggr_if_id);
     }
-    for (int k = 0; k < NUM_CLUSTER; ++k) {
-      // No need for routes to self, skip.
-      if (i == k) {
-        continue;
-      }
-      // Looks up all DCN links between the cluster pair.
-      std::string self_aggr_name = NET + "-c" + std::to_string(i + 1) + "-ab1";
-      std::string peer_aggr_name = NET + "-c" + std::to_string(k + 1) + "-ab1";
-      std::vector<Link> links =
-          globalDcnLinkMap[std::make_pair(self_aggr_name, peer_aggr_name)];
-      // For each valid DCN link, adds a route to the dst cluster. With
-      // multipath routing, one of them should be selected for use.
-      for (const auto &link : links) {
-        uint32_t dcn_if_id = globalDeviceMap[link.first]->GetIfIndex() + 1;
-        Ptr<Ipv4StaticRouting> staticRouting =
-            ipv4RoutingHelper.GetStaticRouting(aggr->GetObject<Ipv4>());
-        staticRouting->AddNetworkRouteTo(
-            Ipv4Address(
-                std::string("10." + std::to_string(k + 1) + ".1.0").c_str()),
-            Ipv4Mask("/24"), dcn_if_id);
-      }
-    }
+  }
+
+  // This part builds the inter-cluster TE implementation based on pre-reduced
+  // group weights.
+  TEImpl te = readTEImpl(teInput, NUM_TOR, NUM_AGGR_PORTS);
+  for (const auto& te_row : te) {
+      uint32_t group_type = std::get<0>(te_row);
+      std::string src = std::get<1>(te_row);
+      std::string dst = std::get<2>(te_row);
+      Ipv4Address dst_prefix = std::get<3>(te_row);
+      std::vector<int> group = std::get<4>(te_row);
+      // Looks up the DCN egress port that directly connects the src and dst. If
+      // there are more than 1 direct connects, simply use the first one. This
+      // default egress port should really be a last resort in case the
+      // installed group does not work.
+      std::vector<Link> links = globalDcnLinkMap[std::make_pair(src, dst)];
+      uint32_t direct_if_id = globalDeviceMap[links[0].first]->GetIfIndex() + 1;
+
+      Ptr<Node> node = globalNodeMap[src];
+      Ptr<Ipv4StaticRouting> staticRouting =
+          ipv4RoutingHelper.GetStaticRouting(node->GetObject<Ipv4>());
+      staticRouting->AddNetworkRouteTo(dst_prefix, Ipv4Mask("/24"),
+                                       direct_if_id, group_type, group);
   }
 
   // Ipv4GlobalRoutingHelper::PopulateRoutingTables();

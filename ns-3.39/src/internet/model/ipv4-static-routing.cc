@@ -126,6 +126,7 @@ void
 Ipv4StaticRouting::AddNetworkRouteTo(Ipv4Address network,
                                      Ipv4Mask networkMask,
                                      uint32_t interface,
+                                     int group_type,
                                      std::vector<int> group,
                                      uint32_t metric)
 {
@@ -134,7 +135,8 @@ Ipv4StaticRouting::AddNetworkRouteTo(Ipv4Address network,
 
     Ipv4RoutingTableEntry route =
         Ipv4RoutingTableEntry::CreateNetworkRouteTo(network, networkMask,
-                                                    interface, group);
+                                                    interface, group_type,
+                                                    group);
     if (!LookupRoute(route, metric))
     {
         Ipv4RoutingTableEntry* routePtr = new Ipv4RoutingTableEntry(route);
@@ -273,7 +275,8 @@ Ipv4StaticRouting::LookupRoute(const Ipv4RoutingTableEntry& route, uint32_t metr
         if (rtentry->GetDest() == route.GetDest() &&
             rtentry->GetDestNetworkMask() == route.GetDestNetworkMask() &&
             rtentry->GetGateway() == route.GetGateway() &&
-            rtentry->GetInterface() == route.GetInterface() && j->second == metric)
+            rtentry->GetInterface() == route.GetInterface() &&
+            rtentry->GetGroupType() == route.GetGroupType() && j->second == metric)
         {
             return true;
         }
@@ -793,7 +796,7 @@ Ipv4StaticRouting::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit
 
     if (GetNRoutes() > 0)
     {
-        *os << "Destination     Gateway         Genmask         Flags Metric Ref    Use Iface Group"
+        *os << "Destination     Gateway         Genmask         Flags Metric Ref    Use Iface Gtype Group"
             << std::endl;
         for (uint32_t j = 0; j < GetNRoutes(); j++)
         {
@@ -836,10 +839,12 @@ Ipv4StaticRouting::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit
 
             if (route.GroupSize())
             {
+                *os << std::setw(5) << route.GetGroupType();
                 *os << std::setw(5) << route.PrintGroup();
             }
             else
             {
+                *os << std::setw(5) << "-";
                 *os << std::setw(5) << "-";
             }
             *os << std::endl;

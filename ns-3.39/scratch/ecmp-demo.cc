@@ -151,7 +151,7 @@ int main(int argc, char *argv[]) {
         group.insert(std::end(group), std::begin(vec), std::end(vec));
       }
       staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.4.0"), Ipv4Mask("/24"),
-                                       2, group);
+                                       2, 1, group);
     }
     if (i == 4) {
       staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("/24"),
