@@ -28,6 +28,11 @@
 namespace ns3
 {
 
+inline int GROUP_TYPE_SRC = 0x1;
+inline int GROUP_TYPE_TRANSIT = 0x2;
+inline int GROUP_TYPE_HOST = 0x4;
+inline int GROUP_TYPE_ALL = GROUP_TYPE_SRC | GROUP_TYPE_TRANSIT | GROUP_TYPE_HOST;
+
 /**
  * \ingroup ipv4Routing
  *
@@ -211,7 +216,7 @@ class Ipv4RoutingTableEntry
     Ipv4Address m_gateway;      //!< gateway
     uint32_t m_interface;       //!< output interface
     std::vector<int> m_group;   //!< WCMP group of egress interfaces.
-    int m_group_type = 0;       //!< WCMP group type.
+    int m_group_type = GROUP_TYPE_HOST; //!< WCMP group type.
 };
 
 /**

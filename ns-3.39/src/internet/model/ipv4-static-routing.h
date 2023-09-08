@@ -25,6 +25,7 @@
 #include "ns3/ipv4-address.h"
 #include "ns3/ipv4-header.h"
 #include "ns3/ipv4-routing-protocol.h"
+#include "ns3/ipv4-routing-table-entry.h"
 #include "ns3/ipv4.h"
 #include "ns3/ptr.h"
 #include "ns3/random-variable-stream.h"
@@ -426,11 +427,13 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
      * \param Ipv4 packet header
      * \param Ipv4 packet payload
      * \param oif output interface if any (put 0 otherwise)
+     * \param group_type type of the group to look up for
      * \return Ipv4Route to route the packet to reach dest address
      */
     Ptr<Ipv4Route> LookupStatic(const Ipv4Header &header,
                                 Ptr<const Packet> ipPayload,
-                                Ptr<NetDevice> oif = nullptr);
+                                Ptr<NetDevice> oif = nullptr,
+                                int group_type = GROUP_TYPE_ALL);
 
     /**
      * \brief Lookup in the multicast forwarding table for destination.

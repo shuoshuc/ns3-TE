@@ -286,7 +286,8 @@ Ipv4StaticRouting::LookupRoute(const Ipv4RoutingTableEntry& route, uint32_t metr
 
 Ptr<Ipv4Route>
 Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
-                                Ptr<const Packet> ipPayload, Ptr<NetDevice> oif)
+                                Ptr<const Packet> ipPayload, Ptr<NetDevice> oif,
+                                int group_type)
 {
     NS_LOG_FUNCTION(this << header << " " << oif);
     Ipv4Address dest = header.GetDestination();
@@ -322,6 +323,12 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
                                                << "/" << masklen);
         if (mask.IsMatch(dest, entry))
         {
+            // Enforces an exact match on the requested type.
+            if (!(group_type & (j)->GetGroupType()))
+            {
+                continue;
+            }
+
             NS_LOG_LOGIC("Found global network route " << j << ", mask length " << masklen
                                                        << ", metric " << metric);
             if (oif)
@@ -636,8 +643,25 @@ Ipv4StaticRouting::RouteInput(Ptr<const Packet> p,
         ecb(p, ipHeader, Socket::ERROR_NOROUTETOHOST);
         return true;
     }
-    // Next, try to find a route
-    Ptr<Ipv4Route> rtentry = LookupStatic(ipHeader, p);
+
+    // Next, try to find a route.
+    // For TTL=64, this is a packet entering the src block, we allow SRC and
+    // HOST type routes, because the packet is either destined to a local ToR or
+    // a remote ToR. For TTL=63, this is a packet that has seen one previous hop
+    // as the TLL has been decremented once already. We allow TRANSIT and HOST
+    // type routes because the packet is either destined to a local ToR (direct
+    // connect path) or a remote ToR (transit path). For any other TTL, we only
+    // allow HOST type routes because there is no scenario where the path length
+    // can be longer than 2. If a HOST route cannot be found in this case, that
+    // is a good sign of a loop, the packet should be dropped.
+    int group_type = GROUP_TYPE_HOST;
+    if ((int)ipHeader.GetTtl() == 64) {
+        group_type |= GROUP_TYPE_SRC;
+    }
+    else if ((int)ipHeader.GetTtl() == 63) {
+        group_type |= GROUP_TYPE_TRANSIT;
+    }
+    Ptr<Ipv4Route> rtentry = LookupStatic(ipHeader, p, nullptr, group_type);
     if (rtentry)
     {
         NS_LOG_LOGIC("Found unicast destination- calling unicast callback");
@@ -837,14 +861,13 @@ Ipv4StaticRouting::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit
                 *os << std::setw(6) << route.GetInterface();
             }
 
+            *os << std::setw(5) << route.GetGroupType();
             if (route.GroupSize())
             {
-                *os << std::setw(5) << route.GetGroupType();
                 *os << std::setw(5) << route.PrintGroup();
             }
             else
             {
-                *os << std::setw(5) << "-";
                 *os << std::setw(5) << "-";
             }
             *os << std::endl;
