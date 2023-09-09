@@ -123,7 +123,8 @@ TrafficMatrix readTM(const std::string &filename) {
   return tm;
 }
 
-TEImpl readTEImpl(const std::string &filename, int NUM_TOR, int NUM_AGGR_PORTS) {
+TEImpl readTEImpl(const std::string &filename, int NUM_TOR,
+                  int NUM_AGGR_PORTS) {
   std::ifstream te_file(filename);
   TEImpl te;
   std::string row;
@@ -134,27 +135,27 @@ TEImpl readTEImpl(const std::string &filename, int NUM_TOR, int NUM_AGGR_PORTS) 
       continue;
     }
     for (uint32_t loc = 3; loc < parsed_row.size(); ++loc) {
-        weight_vec.push_back(std::stoi(parsed_row[loc]));
+      weight_vec.push_back(std::stoi(parsed_row[loc]));
     }
     if ((int)weight_vec.size() != NUM_AGGR_PORTS) {
       NS_LOG_ERROR("Error parsing TEImpl row: " << row);
       continue;
     }
     for (uint32_t i = 0; i < weight_vec.size(); ++i) {
-        if (!weight_vec[i]) {
-            continue;
-        }
-        int if_id = i / 2 + 1 + NUM_TOR;
-        for (int repeat = 0; repeat < weight_vec[i]; ++repeat) {
-            group.push_back(if_id);
-        }
+      if (!weight_vec[i]) {
+        continue;
+      }
+      int if_id = i / 2 + 1 + NUM_TOR;
+      for (int repeat = 0; repeat < weight_vec[i]; ++repeat) {
+        group.push_back(if_id);
+      }
     }
     // Splits the aggregation block name by '-' and extracts the dst cluster id.
     std::stringstream ss(parsed_row[2]);
     std::string segment;
     std::vector<std::string> seglist;
-    while(std::getline(ss, segment, '-')) {
-        seglist.push_back(segment);
+    while (std::getline(ss, segment, '-')) {
+      seglist.push_back(segment);
     }
     std::string prefix = "10." + seglist[1].erase(0, 1) + ".1.0";
     // Format: group type, src aggregation block name, dst prefix, group.
@@ -242,16 +243,16 @@ int main(int argc, char *argv[]) {
   std::map<int, int> SPEED_MAP{{1, 40}, {2, 100}, {3, 200}};
   // The FQDNs of intra-cluster devices which should enable pcap trace on.
   // All device names are stored as a map:
-  // cluster id: {"f2-c1-t1-p1", "f2-c2-ab1-p1", ...}
+  // cluster id: {"toy3-c1-t1-p1", "toy3-c2-ab1-p1", ...}
   std::map<int, std::set<std::string>> pcap_intra_fqdn{
-      //{1, {"f1-c1-t1-p1", "f1-c1-ab1-p2"}},
-      //{2, {"f1-c2-t11-p1", "f1-c2-ab1-p22"}}
+      //{1, {"toy3-c1-t1-p1", "toy3-c1-ab1-p2"}},
+      //{2, {"toy3-c2-t11-p1", "toy3-c2-ab1-p22"}}
   };
   // The FQDNs of inter-cluster devices which should enable pcap trace on.
   // All device names are stored as a map like `pcap_intra_fqdn`.
   std::map<int, std::set<std::string>> pcap_inter_fqdn{
-      //{1, {"f1-c1-ab1-p1"}},
-      //{2, {"f1-c2-ab1-p1"}}
+      //{1, {"toy3-c1-ab1-p1"}},
+      //{2, {"toy3-c2-ab1-p1"}}
   };
   // A vector of node names where the routing table of each should be dumped.
   std::vector<std::string> subscribed_routing_tables{};
@@ -262,6 +263,8 @@ int main(int argc, char *argv[]) {
   bool verbose = false;
   std::string trafficInput = "./inputs/trace.csv";
   std::string teInput = "./inputs/te_impl.csv";
+  // Folder to hold all output files.
+  std::string outPrefix = "./igr/";
   // Parse command line
   CommandLine cmd(__FILE__);
   cmd.AddValue("tracing", "Enable pcap tracing", tracing);
@@ -271,6 +274,7 @@ int main(int argc, char *argv[]) {
                trafficInput);
   cmd.AddValue("teInput", "File path of the input TE implementation file",
                teInput);
+  cmd.AddValue("outPrefix", "File path of the output files", outPrefix);
   cmd.Parse(argc, argv);
 
   // ===========================
@@ -299,8 +303,7 @@ int main(int argc, char *argv[]) {
   Config::SetDefault("ns3::RedQueueDisc::MaxTh", DoubleValue(16));
 
   Time::SetResolution(Time::NS);
-  LogComponentEnable("Spinefree",
-                     (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_TIME));
+  LogComponentEnable("Spinefree", (LogLevel)(LOG_LEVEL_INFO | LOG_PREFIX_TIME));
 
   if (verbose) {
     LogComponentEnable(
@@ -397,8 +400,8 @@ int main(int argc, char *argv[]) {
           NS_LOG_ERROR(fqdn << " not found in globalDeviceMap!");
           continue;
         }
-        intraClusterLink.EnablePcap(fqdn + ".pcap", globalDeviceMap[fqdn], true,
-                                    true);
+        intraClusterLink.EnablePcap(outPrefix + fqdn + ".pcap",
+                                    globalDeviceMap[fqdn], true, true);
       }
     }
   }
@@ -454,13 +457,13 @@ int main(int argc, char *argv[]) {
       if (tracing && (!useMpi || systemId == i)) {
         if (pcap_inter_fqdn.count(i + 1) &&
             pcap_inter_fqdn[i + 1].count(self_port_name)) {
-          interClusterLink.EnablePcap(self_port_name + ".pcap", self_port, true,
-                                      true);
+          interClusterLink.EnablePcap(outPrefix + self_port_name + ".pcap",
+                                      self_port, true, true);
         }
         if (pcap_inter_fqdn.count(j + 1) &&
             pcap_inter_fqdn[j + 1].count(peer_port_name)) {
-          interClusterLink.EnablePcap(peer_port_name + ".pcap", peer_port, true,
-                                      true);
+          interClusterLink.EnablePcap(outPrefix + peer_port_name + ".pcap",
+                                      peer_port, true, true);
         }
       }
     }
@@ -552,24 +555,24 @@ int main(int argc, char *argv[]) {
   // This part builds the inter-cluster TE implementation based on pre-reduced
   // group weights.
   TEImpl te = readTEImpl(teInput, NUM_TOR, NUM_AGGR_PORTS);
-  for (const auto& te_row : te) {
-      uint32_t group_type = std::get<0>(te_row);
-      std::string src = std::get<1>(te_row);
-      std::string dst = std::get<2>(te_row);
-      Ipv4Address dst_prefix = std::get<3>(te_row);
-      std::vector<int> group = std::get<4>(te_row);
-      // Looks up the DCN egress port that directly connects the src and dst. If
-      // there are more than 1 direct connects, simply use the first one. This
-      // default egress port should really be a last resort in case the
-      // installed group does not work.
-      std::vector<Link> links = globalDcnLinkMap[std::make_pair(src, dst)];
-      uint32_t direct_if_id = globalDeviceMap[links[0].first]->GetIfIndex() + 1;
+  for (const auto &te_row : te) {
+    uint32_t group_type = std::get<0>(te_row);
+    std::string src = std::get<1>(te_row);
+    std::string dst = std::get<2>(te_row);
+    Ipv4Address dst_prefix = std::get<3>(te_row);
+    std::vector<int> group = std::get<4>(te_row);
+    // Looks up the DCN egress port that directly connects the src and dst. If
+    // there are more than 1 direct connects, simply use the first one. This
+    // default egress port should really be a last resort in case the
+    // installed group does not work.
+    std::vector<Link> links = globalDcnLinkMap[std::make_pair(src, dst)];
+    uint32_t direct_if_id = globalDeviceMap[links[0].first]->GetIfIndex() + 1;
 
-      Ptr<Node> node = globalNodeMap[src];
-      Ptr<Ipv4StaticRouting> staticRouting =
-          ipv4RoutingHelper.GetStaticRouting(node->GetObject<Ipv4>());
-      staticRouting->AddNetworkRouteTo(dst_prefix, Ipv4Mask("/24"),
-                                       direct_if_id, group_type, group);
+    Ptr<Node> node = globalNodeMap[src];
+    Ptr<Ipv4StaticRouting> staticRouting =
+        ipv4RoutingHelper.GetStaticRouting(node->GetObject<Ipv4>());
+    staticRouting->AddNetworkRouteTo(dst_prefix, Ipv4Mask("/24"), direct_if_id,
+                                     group_type, group);
   }
 
   // Ipv4GlobalRoutingHelper::PopulateRoutingTables();
@@ -598,14 +601,15 @@ int main(int argc, char *argv[]) {
       sinkApps.Add(sinkHelper.Install(cluster_nodes[i]["tor"]));
     }
   }
-  sinkApps.Start(Seconds(0.0));
+  sinkApps.Start(MilliSeconds(0));
 
   // Creates the BulkSend applications to send. Who sends to who, how much and
   // when to send is determined by the rows in TM.
   ApplicationContainer clientApps;
   // If MPI is enabled, every process should write to its dedicated file.
   Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>(
-      "fct-proc" + std::to_string(systemId) + ".csv", std::ios::app);
+      outPrefix + "fct-proc" + std::to_string(systemId) + ".csv",
+      std::ios::app);
   for (const TMRow &row : TM) {
     std::string src = std::get<0>(row);
     int sidx = std::get<1>(row);
@@ -651,18 +655,19 @@ int main(int argc, char *argv[]) {
       continue;
     }
     gRouting.PrintRoutingTableAt(
-        Seconds(0), globalNodeMap[node],
-        Create<OutputStreamWrapper>(node + ".route", std::ios::out));
+        MilliSeconds(0), globalNodeMap[node],
+        Create<OutputStreamWrapper>(outPrefix + node + ".route",
+                                    std::ios::out));
   }
 
   NS_LOG_INFO("Run simulation.");
-  Simulator::Stop(Seconds(10));
+  Simulator::Stop(MilliSeconds(10));
   Simulator::Run();
   NS_LOG_INFO("Simulation done.");
 
   // Dump flow stats.
   if (verbose) {
-    flowMonitor->SerializeToXmlFile("Spinefree.xml", true, true);
+    flowMonitor->SerializeToXmlFile(outPrefix + "Spinefree.xml", true, true);
   }
   Simulator::Destroy();
 
