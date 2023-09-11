@@ -79,6 +79,7 @@ Ipv4StaticRouting::Ipv4StaticRouting()
     NS_LOG_FUNCTION(this);
 
     m_rand = CreateObject<UniformRandomVariable>();
+    m_seed = m_rand->GetInteger(0, 0xFFFFFFFF);
 
     // hasher for ecmp.
     hasher = Hasher();
