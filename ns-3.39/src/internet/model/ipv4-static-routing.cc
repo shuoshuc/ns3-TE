@@ -402,16 +402,15 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
             if (!pair.second)
             {
                 std::pair<Time, uint32_t> flowlet_entry = m_flowlet_table[hash];
-                // If entry has timed out, refresh it. Otherwise use the egress
-                // from flowlet table.
-                if (flowlet_entry.first + m_flowlet_timeout < now)
-                {
-                    m_flowlet_table[hash] = std::make_pair(now, interfaceIdx);
-                }
-                else
+                // If entry has entryot timed out, use the egress from the
+                // flowlet table.
+                if (flowlet_entry.first + m_flowlet_timeout > now)
                 {
                     interfaceIdx = flowlet_entry.second;
                 }
+                // Refresh the entry in the flowlet table with the latest update
+                // time and potentially different egress.
+                m_flowlet_table[hash] = std::make_pair(now, interfaceIdx);
             }
         }
         else if (m_flowEcmpRouting && route->GroupSize())
