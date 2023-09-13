@@ -101,6 +101,13 @@ class BulkSendApplication : public Application
     void SetMaxBytes(uint64_t maxBytes);
 
     /**
+     * \brief Get the estimated flow completion time.
+     *
+     * \return flow completion time in nanoseconds.
+     */
+    int64_t GetFctEstimate();
+
+    /**
      * \brief Get the socket this application is attached to.
      * \return pointer to associated socket
      */

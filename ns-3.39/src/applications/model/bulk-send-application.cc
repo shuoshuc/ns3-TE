@@ -117,6 +117,17 @@ BulkSendApplication::SetMaxBytes(uint64_t maxBytes)
     m_maxBytes = maxBytes;
 }
 
+int64_t BulkSendApplication::GetFctEstimate()
+{
+    NS_LOG_FUNCTION(this);
+    auto dur = (Simulator::Now() - m_startTxTime).ToInteger(Time::NS);
+    // If a flow has not started or already finished, no need to estimate FCT.
+    if (dur <= 0 || m_maxBytes == m_totBytes) {
+        return 0;
+    }
+    return (int64_t)(dur * (double)m_maxBytes / m_totBytes);
+}
+
 Ptr<Socket>
 BulkSendApplication::GetSocket() const
 {

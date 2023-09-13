@@ -685,6 +685,21 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  // Dump estimate FCT if simulation terminates early.
+  Ptr<OutputStreamWrapper> fct_stream = Create<OutputStreamWrapper>(
+      outPrefix + "fctEstimate-proc" + std::to_string(systemId) + ".csv",
+      std::ios::app);
+  for (ApplicationContainer::Iterator i = clientApps.Begin();
+       i != clientApps.End(); i++) {
+    Ptr<BulkSendApplication> app = DynamicCast<BulkSendApplication>(*i);
+    auto fct = app->GetFctEstimate();
+    if (fct <= 0) {
+      continue;
+    }
+    NS_LOG_INFO("FCT estimate " << fct << " nsec.");
+    *fct_stream->GetStream() << fct << std::endl;
+  }
+
   // Dump flow stats.
   if (verbose) {
     flowMonitor->SerializeToXmlFile(outPrefix + "Spinefree.xml", true, true);
