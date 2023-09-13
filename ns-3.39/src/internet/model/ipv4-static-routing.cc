@@ -961,6 +961,13 @@ Ipv4StaticRouting::GetFlowHash(const Ipv4Header &header,
     return hasher.GetHash32(oss.str());
 }
 
+uint32_t
+Ipv4StaticRouting::GetFlowletTableSize()
+{
+    NS_LOG_FUNCTION(this);
+    return m_flowlet_table.size();
+}
+
 void
 Ipv4StaticRouting::SetFlowletTimeout(Time timeout)
 {

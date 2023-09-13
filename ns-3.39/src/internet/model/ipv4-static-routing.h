@@ -382,6 +382,13 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
      */
     void RemoveMulticastRoute(uint32_t index);
 
+    /**
+     * \brief Obtain the flowlet table usage.
+     *
+     * \returns Number of flowlet entries in the table.
+     */
+    uint32_t GetFlowletTableSize();
+
   protected:
     void DoDispose() override;
 

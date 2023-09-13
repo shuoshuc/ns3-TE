@@ -227,8 +227,6 @@ int main(int argc, char *argv[]) {
   // ==                       ==
   // ===========================
 
-  // If true, the simulation will be run using MPI.
-  bool useMpi = false;
   // Fabric name.
   std::string NET = "toy3";
   // Number of Gen. 1/2/3 clusters.
@@ -259,8 +257,12 @@ int main(int argc, char *argv[]) {
   // Some constants of the trace name to use.
   std::string MSFT_WEB_TRACE = "./inputs/msft-web.csv";
 
+  // If true, the simulation will be run using MPI.
+  bool useMpi = false;
   bool tracing = false;
   bool verbose = false;
+  bool flowEcmp = false;
+  bool flowlet = true;
   std::string trafficInput = "./inputs/trace.csv";
   std::string teInput = "./inputs/te_impl.csv";
   // Folder to hold all output files.
@@ -287,9 +289,9 @@ int main(int argc, char *argv[]) {
   // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowEcmpRouting",
-                     BooleanValue(false));
+                     BooleanValue(flowEcmp));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowletLB",
-                     BooleanValue(true));
+                     BooleanValue(flowlet));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowletTimeout",
                      TimeValue(MicroSeconds(100)));
   GlobalValue::Bind("ChecksumEnabled", BooleanValue(false));
@@ -668,6 +670,20 @@ int main(int argc, char *argv[]) {
   Simulator::Stop(MilliSeconds(10));
   Simulator::Run();
   NS_LOG_INFO("Simulation done.");
+
+  // Dump flowlet table usage.
+  if (flowlet) {
+    // If MPI is enabled, every process should write to its dedicated file.
+    Ptr<OutputStreamWrapper> fstream = Create<OutputStreamWrapper>(
+        outPrefix + "flowlet-proc" + std::to_string(systemId) + ".csv",
+        std::ios::app);
+    for (const auto &[name, node] : globalNodeMap) {
+      Ptr<Ipv4StaticRouting> staticRouting =
+          ipv4RoutingHelper.GetStaticRouting(node->GetObject<Ipv4>());
+      *fstream->GetStream()
+          << name << "," << staticRouting->GetFlowletTableSize() << std::endl;
+    }
+  }
 
   // Dump flow stats.
   if (verbose) {
