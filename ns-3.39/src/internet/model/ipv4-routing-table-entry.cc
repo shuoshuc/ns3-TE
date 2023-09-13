@@ -23,6 +23,7 @@
 #include "ns3/log.h"
 
 #include <map>
+#include <set>
 #include <string>
 
 namespace ns3
@@ -45,6 +46,7 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(const Ipv4RoutingTableEntry& route)
       m_gateway(route.m_gateway),
       m_interface(route.m_interface),
       m_group(route.m_group),
+      m_dedup_group(route.m_dedup_group),
       m_group_type(route.m_group_type)
 {
     NS_LOG_FUNCTION(this << route);
@@ -56,6 +58,7 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(const Ipv4RoutingTableEntry* route)
       m_gateway(route->m_gateway),
       m_interface(route->m_interface),
       m_group(route->m_group),
+      m_dedup_group(route->m_dedup_group),
       m_group_type(route->m_group_type)
 {
     NS_LOG_FUNCTION(this << route);
@@ -116,6 +119,10 @@ Ipv4RoutingTableEntry::Ipv4RoutingTableEntry(Ipv4Address network,
 {
     NS_LOG_FUNCTION(this << network << networkMask << interface << group_type
                     << group);
+
+    // Dedup group.
+    std::set<int> s(group.begin(), group.end());
+    m_dedup_group.assign(s.begin(), s.end());
 }
 
 bool
@@ -181,11 +188,25 @@ Ipv4RoutingTableEntry::GetInterface() const
     return m_interface;
 }
 
+int
+Ipv4RoutingTableEntry::GetFlowletInterface(int index) const
+{
+    NS_LOG_FUNCTION(this);
+    return m_dedup_group[index];
+}
+
 uint32_t
 Ipv4RoutingTableEntry::GroupSize() const
 {
     NS_LOG_FUNCTION(this);
     return m_group.size();
+}
+
+uint32_t
+Ipv4RoutingTableEntry::DedupGroupSize() const
+{
+    NS_LOG_FUNCTION(this);
+    return m_dedup_group.size();
 }
 
 int

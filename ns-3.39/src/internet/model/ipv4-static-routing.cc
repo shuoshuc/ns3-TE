@@ -33,6 +33,7 @@
 #include "ns3/log.h"
 #include "ns3/names.h"
 #include "ns3/node.h"
+#include "ns3/nstime.h"
 #include "ns3/output-stream-wrapper.h"
 #include "ns3/packet.h"
 #include "ns3/simulator.h"
@@ -41,6 +42,7 @@
 
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
 using std::make_pair;
 
@@ -67,12 +69,25 @@ Ipv4StaticRouting::GetTypeId()
                                           "using only one route consistently",
                                           BooleanValue(false),
                                           MakeBooleanAccessor(&Ipv4StaticRouting::m_flowEcmpRouting),
-                                          MakeBooleanChecker());
+                                          MakeBooleanChecker())
+                            .AddAttribute("FlowletLB",
+                                          "Set to true if flows are load balanced "
+                                          "by flowlets.",
+                                          BooleanValue(false),
+                                          MakeBooleanAccessor(&Ipv4StaticRouting::m_flowletLB),
+                                          MakeBooleanChecker())
+                            .AddAttribute("FlowletTimeout",
+                                          "Timeout value for flowlets.",
+                                          TimeValue(MicroSeconds(1)),
+                                          MakeTimeAccessor(&Ipv4StaticRouting::GetFlowletTimeout,
+                                                           &Ipv4StaticRouting::SetFlowletTimeout),
+                                          MakeTimeChecker());
     return tid;
 }
 
 Ipv4StaticRouting::Ipv4StaticRouting()
     : m_flowEcmpRouting(false),
+      m_flowletLB(false),
       m_seed(0),
       m_ipv4(nullptr)
 {
@@ -369,13 +384,37 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
         // Only 1 matching route is expected. If more than 1 is found, always
         // use the first one. For load balancing, users should not create
         // multiple equivalent routes but use 1 route + group instead. When
-        // flowEcmpRouting is disabled or there is no group to use, egress via
-        // the default egress interface as a fallback. Note that for
+        // flowletLB or flowEcmpRouting is disabled or there is no group to use,
+        // egress via the default egress interface as a fallback. Note that for
         // non-supported transport protocols (anything other than TCP and UDP),
         // the hash value is always 0, so it falls back to non-ECMP mode.
         uint32_t interfaceIdx;
         Ipv4RoutingTableEntry* route = allRoutes.at(0);
-        if (m_flowEcmpRouting && route->GroupSize())
+        if (m_flowletLB && route->DedupGroupSize())
+        {
+            uint32_t hash = GetFlowHash(header, ipPayload);
+            // Pre-select a new egress for flowlet just in case.
+            interfaceIdx = route->GetFlowletInterface(
+                m_rand->GetInteger(0, 0xFFFFFFFF) % route->DedupGroupSize());
+            // Attempt to insert a new entry if the flow is new.
+            Time now = Simulator::Now();
+            auto pair = m_flowlet_table.emplace(hash, std::make_pair(now, interfaceIdx));
+            if (!pair.second)
+            {
+                std::pair<Time, uint32_t> flowlet_entry = m_flowlet_table[hash];
+                // If entry has timed out, refresh it. Otherwise use the egress
+                // from flowlet table.
+                if (flowlet_entry.first + m_flowlet_timeout < now)
+                {
+                    m_flowlet_table[hash] = std::make_pair(now, interfaceIdx);
+                }
+                else
+                {
+                    interfaceIdx = flowlet_entry.second;
+                }
+            }
+        }
+        else if (m_flowEcmpRouting && route->GroupSize())
         {
             uint32_t hash = GetFlowHash(header, ipPayload);
             interfaceIdx = route->LookupGroup(hash % route->GroupSize());
@@ -921,6 +960,19 @@ Ipv4StaticRouting::GetFlowHash(const Ipv4Header &header,
     oss << sport << dport;
 
     return hasher.GetHash32(oss.str());
+}
+
+void
+Ipv4StaticRouting::SetFlowletTimeout(Time timeout)
+{
+    NS_LOG_FUNCTION(this << timeout);
+    m_flowlet_timeout = timeout;
+}
+
+Time
+Ipv4StaticRouting::GetFlowletTimeout() const
+{
+    return m_flowlet_timeout;
 }
 
 

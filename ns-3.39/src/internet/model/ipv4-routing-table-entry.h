@@ -111,6 +111,14 @@ class Ipv4RoutingTableEntry
      */
     std::string PrintGroup() const;
     /**
+     * \return The egress interface at location index to be used by flowlets.
+     */
+    int GetFlowletInterface(int index) const;
+    /**
+     * \return The number of egress entries in the deduplicated group.
+     */
+    uint32_t DedupGroupSize() const;
+    /**
      * \return An Ipv4RoutingTableEntry object corresponding to the input parameters.
      * \param dest Ipv4Address of the destination
      * \param nextHop Ipv4Address of the next hop
@@ -216,6 +224,7 @@ class Ipv4RoutingTableEntry
     Ipv4Address m_gateway;      //!< gateway
     uint32_t m_interface;       //!< output interface
     std::vector<int> m_group;   //!< WCMP group of egress interfaces.
+    std::vector<int> m_dedup_group;     //!< Deduplicated WCMP group.
     int m_group_type = GROUP_TYPE_HOST; //!< WCMP group type.
 };
 

@@ -287,7 +287,11 @@ int main(int argc, char *argv[]) {
   // Overrides default TCP MSS from 536B to 1448B to match Ethernet.
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowEcmpRouting",
+                     BooleanValue(false));
+  Config::SetDefault("ns3::Ipv4StaticRouting::FlowletLB",
                      BooleanValue(true));
+  Config::SetDefault("ns3::Ipv4StaticRouting::FlowletTimeout",
+                     TimeValue(MicroSeconds(100)));
   GlobalValue::Bind("ChecksumEnabled", BooleanValue(false));
   /*
   // Sets default CCA to CUBIC.

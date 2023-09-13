@@ -390,6 +390,9 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
     /// consistently
     bool m_flowEcmpRouting;
 
+    /// Set to true if flows are randomly routed using flowlet load balancing.
+    bool m_flowletLB;
+
     /// A uniform random number generator for randomly routing packets among ECMP
     Ptr<UniformRandomVariable> m_rand;
 
@@ -413,6 +416,9 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
 
     /// Iterator for container for the multicast routes
     typedef std::list<Ipv4MulticastRoutingTableEntry*>::iterator MulticastRoutesI;
+
+    /// Flowlet table maps a flow hash to a pair of last update time and egress.
+    typedef std::map<uint32_t, std::pair<Time, uint32_t>> FlowletTable;
 
     /**
      * \brief Checks if a route is already present in the forwarding table.
@@ -453,6 +459,19 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
     uint32_t GetFlowHash(const Ipv4Header &header, Ptr<const Packet> ipPayload);
 
     /**
+     * \brief Sets flowlet timeout.
+     * \param Timeout value
+     * \return None
+     */
+    void SetFlowletTimeout(Time timeout);
+
+    /**
+     * \brief Gets flowlet timeout.
+     * \return Timeout value
+     */
+    Time GetFlowletTimeout() const;
+
+    /**
      * \brief the forwarding table for network.
      */
     NetworkRoutes m_networkRoutes;
@@ -471,6 +490,16 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
      * \brief a hash helper library.
      */
     Hasher hasher;
+
+    /**
+     * \brief A flowlet table.
+     */
+    FlowletTable m_flowlet_table;
+
+    /**
+     * \brief Timeout value for flowlets.
+     */
+    Time m_flowlet_timeout;
 };
 
 } // Namespace ns3
