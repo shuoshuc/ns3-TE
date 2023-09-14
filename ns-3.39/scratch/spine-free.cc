@@ -185,10 +185,10 @@ int getClusterGenByIndex(int idx, std::vector<int> genVec) {
 }
 
 // Callback function to compute flow completion time.
-void calcFCT(Ptr<OutputStreamWrapper> stream, const Time &start,
+void calcFCT(Ptr<OutputStreamWrapper> stream, bool filter, const Time &start,
              const Time &end) {
   auto dur = (end - start).ToInteger(Time::NS);
-  if (dur <= 0) {
+  if (filter && dur <= 0) {
     return;
   }
   NS_LOG_INFO("FCT " << dur << " nsec.");
@@ -259,6 +259,8 @@ int main(int argc, char *argv[]) {
 
   // If true, the simulation will be run using MPI.
   bool useMpi = false;
+  // If true, filters out all negative FCT values.
+  bool filterFct = false;
   bool tracing = false;
   bool verbose = false;
   bool flowEcmp = false;
@@ -271,6 +273,7 @@ int main(int argc, char *argv[]) {
   CommandLine cmd(__FILE__);
   cmd.AddValue("tracing", "Enable pcap tracing", tracing);
   cmd.AddValue("mpi", "Enable distributed simulation", useMpi);
+  cmd.AddValue("filterFct", "Filters negative FCT values", filterFct);
   cmd.AddValue("verbose", "verbose output", verbose);
   cmd.AddValue("trafficInput", "File path of the input traffic demand file",
                trafficInput);
@@ -640,7 +643,7 @@ int main(int argc, char *argv[]) {
     // Register callback to measure FCT, there is supposed to be only one app
     // in this container.
     client.Get(0)->TraceConnectWithoutContext(
-        "Fct", MakeBoundCallback(&calcFCT, stream));
+        "Fct", MakeBoundCallback(&calcFCT, stream, filterFct));
     client.Start(NanoSeconds(start_time));
     clientApps.Add(client);
   }
@@ -693,7 +696,7 @@ int main(int argc, char *argv[]) {
        i != clientApps.End(); i++) {
     Ptr<BulkSendApplication> app = DynamicCast<BulkSendApplication>(*i);
     auto fct = app->GetFctEstimate();
-    if (fct <= 0) {
+    if (filterFct && fct <= 0) {
       continue;
     }
     NS_LOG_INFO("FCT estimate " << fct << " nsec.");
