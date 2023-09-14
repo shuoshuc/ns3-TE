@@ -192,7 +192,8 @@ void calcFCT(Ptr<OutputStreamWrapper> stream, bool filter, const Time &start,
     return;
   }
   NS_LOG_INFO("FCT " << dur << " nsec.");
-  *stream->GetStream() << dur << std::endl;
+  *stream->GetStream() << start.ToInteger(Time::NS) << ","
+                       << end.ToInteger(Time::NS) << "," << dur << std::endl;
 }
 
 // Wipes the static routing table on the specified node.
