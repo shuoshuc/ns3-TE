@@ -260,11 +260,11 @@ int main(int argc, char *argv[]) {
   // If true, the simulation will be run using MPI.
   bool useMpi = false;
   // If true, filters out all negative FCT values.
-  bool filterFct = false;
+  bool filterFct = true;
   bool tracing = false;
   bool verbose = false;
-  bool flowEcmp = false;
-  bool flowlet = true;
+  bool flowEcmp = true;
+  bool flowlet = false;
   std::string trafficInput = "./inputs/trace.csv";
   std::string teInput = "./inputs/te_impl.csv";
   // Folder to hold all output files.
@@ -296,7 +296,7 @@ int main(int argc, char *argv[]) {
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowletLB",
                      BooleanValue(flowlet));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowletTimeout",
-                     TimeValue(MicroSeconds(100)));
+                     TimeValue(MicroSeconds(500)));
   GlobalValue::Bind("ChecksumEnabled", BooleanValue(false));
   /*
   // Sets default CCA to CUBIC.
