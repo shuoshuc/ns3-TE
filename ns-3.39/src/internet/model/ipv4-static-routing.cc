@@ -414,11 +414,12 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
             // Attempt to insert a new entry if the flow is new.
             Time now = Simulator::Now();
             auto pair = m_flowlet_table.emplace(hash, std::make_pair(now, interfaceIdx));
+            // Insertion failed, meaning the flowlet already exists.
             if (!pair.second)
             {
                 std::pair<Time, uint32_t> flowlet_entry = m_flowlet_table[hash];
-                // If entry has entryot timed out, use the egress from the
-                // flowlet table.
+                // If entry has not timed out, use the egress from the flowlet
+                // table.
                 if (flowlet_entry.first + m_flowlet_timeout > now)
                 {
                     interfaceIdx = flowlet_entry.second;
@@ -426,6 +427,20 @@ Ipv4StaticRouting::LookupStatic(const Ipv4Header &header,
                 // Refresh the entry in the flowlet table with the latest update
                 // time and potentially different egress.
                 m_flowlet_table[hash] = std::make_pair(now, interfaceIdx);
+            }
+            // A new flowlet is added, track its key.
+            else
+            {
+                // Now the flowlet table exceeds size limit, evict some entries.
+                while (m_flowlet_table.size() > FLOWLET_SIZE)
+                {
+                    uint32_t victim = m_flowlet_keys.front();
+                    m_flowlet_table.erase(victim);
+                    m_flowlet_keys.pop_front();
+                }
+                // Insert the new flow hash after eviction to avoid accidentally
+                // evicting this new flow.
+                m_flowlet_keys.push_back(hash);
             }
         }
         else if (m_flowEcmpRouting && route->GroupSize())
@@ -980,6 +995,10 @@ uint32_t
 Ipv4StaticRouting::GetFlowletTableSize()
 {
     NS_LOG_FUNCTION(this);
+    if (m_flowlet_table.size() != m_flowlet_keys.size())
+    {
+        NS_LOG_ERROR("Flowlet table and keys size mismatch!");
+    }
     return m_flowlet_table.size();
 }
 

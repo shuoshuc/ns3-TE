@@ -31,13 +31,18 @@
 #include "ns3/random-variable-stream.h"
 #include "ns3/socket.h"
 
+#include <deque>
 #include <list>
 #include <stdint.h>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace ns3
 {
+
+// Number of flowlet entries allowed in the flowlet table.
+inline uint32_t FLOWLET_SIZE = 16384;
 
 class Packet;
 class NetDevice;
@@ -428,7 +433,10 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
     typedef std::list<Ipv4MulticastRoutingTableEntry*>::iterator MulticastRoutesI;
 
     /// Flowlet table maps a flow hash to a pair of last update time and egress.
-    typedef std::map<uint32_t, std::pair<Time, uint32_t>> FlowletTable;
+    typedef std::unordered_map<uint32_t, std::pair<Time, uint32_t>> FlowletTable;
+
+    /// Flowlet key table holds all the keys in the flowlet table.
+    typedef std::deque<uint32_t> FlowletKeyTable;
 
     /**
      * \brief Checks if a route is already present in the forwarding table.
@@ -505,6 +513,11 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
      * \brief A flowlet table.
      */
     FlowletTable m_flowlet_table;
+
+    /**
+     * \brief A flowlet key table.
+     */
+    FlowletKeyTable m_flowlet_keys;
 
     /**
      * \brief Timeout value for flowlets.
