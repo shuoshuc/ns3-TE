@@ -265,6 +265,7 @@ int main(int argc, char *argv[]) {
   bool tracing = false;
   bool verbose = false;
   bool flowEcmp = true;
+  bool useWcmp = true;
   bool flowlet = false;
   std::string trafficInput = "./inputs/trace.csv";
   std::string teInput = "./inputs/te_impl.csv";
@@ -294,6 +295,7 @@ int main(int argc, char *argv[]) {
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowEcmpRouting",
                      BooleanValue(flowEcmp));
+  Config::SetDefault("ns3::Ipv4StaticRouting::UseWcmp", BooleanValue(useWcmp));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowletLB",
                      BooleanValue(flowlet));
   Config::SetDefault("ns3::Ipv4StaticRouting::FlowletTimeout",

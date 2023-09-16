@@ -397,6 +397,9 @@ class Ipv4StaticRouting : public Ipv4RoutingProtocol
     /// consistently
     bool m_flowEcmpRouting;
 
+    /// Set to true if WCMP should be used instead of ECMP.
+    bool m_useWcmp;
+
     /// Set to true if flows are randomly routed using flowlet load balancing.
     bool m_flowletLB;
 

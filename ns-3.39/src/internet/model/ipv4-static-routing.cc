@@ -70,6 +70,12 @@ Ipv4StaticRouting::GetTypeId()
                                           BooleanValue(false),
                                           MakeBooleanAccessor(&Ipv4StaticRouting::m_flowEcmpRouting),
                                           MakeBooleanChecker())
+                            .AddAttribute("UseWcmp",
+                                          "Set to true if true WCMP is needed "
+                                          "instead of ECMP",
+                                          BooleanValue(false),
+                                          MakeBooleanAccessor(&Ipv4StaticRouting::m_useWcmp),
+                                          MakeBooleanChecker())
                             .AddAttribute("FlowletLB",
                                           "Set to true if flows are load balanced "
                                           "by flowlets.",
@@ -87,6 +93,7 @@ Ipv4StaticRouting::GetTypeId()
 
 Ipv4StaticRouting::Ipv4StaticRouting()
     : m_flowEcmpRouting(false),
+      m_useWcmp(false),
       m_flowletLB(false),
       m_seed(0),
       m_ipv4(nullptr)
@@ -149,10 +156,18 @@ Ipv4StaticRouting::AddNetworkRouteTo(Ipv4Address network,
     NS_LOG_FUNCTION(this << network << " " << networkMask << " " << interface
                     << " " << group << " " << metric);
 
+    // Dedup group if WCMP mode is disabled.
+    std::vector<int> input_group = group;
+    if (!m_useWcmp)
+    {
+        std::set<int> s(group.begin(), group.end());
+        input_group.assign(s.begin(), s.end());
+    }
+
     Ipv4RoutingTableEntry route =
         Ipv4RoutingTableEntry::CreateNetworkRouteTo(network, networkMask,
                                                     interface, group_type,
-                                                    group);
+                                                    input_group);
     if (!LookupRoute(route, metric))
     {
         Ipv4RoutingTableEntry* routePtr = new Ipv4RoutingTableEntry(route);
