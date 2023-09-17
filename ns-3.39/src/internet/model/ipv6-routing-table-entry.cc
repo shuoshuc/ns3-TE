@@ -33,6 +33,7 @@ Ipv6RoutingTableEntry::Ipv6RoutingTableEntry(const Ipv6RoutingTableEntry& route)
       m_destNetworkPrefix(route.m_destNetworkPrefix),
       m_gateway(route.m_gateway),
       m_interface(route.m_interface),
+      m_group(route.m_group),
       m_prefixToUse(route.m_prefixToUse)
 {
 }
@@ -42,6 +43,7 @@ Ipv6RoutingTableEntry::Ipv6RoutingTableEntry(const Ipv6RoutingTableEntry* route)
       m_destNetworkPrefix(route->m_destNetworkPrefix),
       m_gateway(route->m_gateway),
       m_interface(route->m_interface),
+      m_group(route->m_group),
       m_prefixToUse(route->m_prefixToUse)
 {
 }
@@ -110,6 +112,19 @@ Ipv6RoutingTableEntry::Ipv6RoutingTableEntry(Ipv6Address network,
       m_destNetworkPrefix(networkPrefix),
       m_gateway(Ipv6Address::GetZero()),
       m_interface(interface),
+      m_prefixToUse(Ipv6Address("::"))
+{
+}
+
+Ipv6RoutingTableEntry::Ipv6RoutingTableEntry(Ipv6Address network,
+                                             Ipv6Prefix networkPrefix,
+                                             uint32_t interface,
+                                             std::vector<uint32_t> group)
+    : m_dest(network),
+      m_destNetworkPrefix(networkPrefix),
+      m_gateway(Ipv6Address::GetZero()),
+      m_interface(interface),
+      m_group(group),
       m_prefixToUse(Ipv6Address("::"))
 {
 }
@@ -221,6 +236,15 @@ Ipv6RoutingTableEntry::CreateNetworkRouteTo(Ipv6Address network,
 }
 
 Ipv6RoutingTableEntry
+Ipv6RoutingTableEntry::CreateNetworkRouteTo(Ipv6Address network,
+                                            Ipv6Prefix networkPrefix,
+                                            uint32_t interface,
+                                            std::vector<uint32_t> group)
+{
+    return Ipv6RoutingTableEntry(network, networkPrefix, interface, group);
+}
+
+Ipv6RoutingTableEntry
 Ipv6RoutingTableEntry::CreateDefaultRoute(Ipv6Address nextHop, uint32_t interface)
 {
     return Ipv6RoutingTableEntry(Ipv6Address::GetZero(), nextHop, interface);
@@ -230,6 +254,34 @@ uint32_t
 Ipv6RoutingTableEntry::GetInterface() const
 {
     return m_interface;
+}
+
+uint32_t
+Ipv6RoutingTableEntry::GroupSize() const
+{
+    return m_group.size();
+}
+
+uint32_t
+Ipv6RoutingTableEntry::LookupGroup(int index) const
+{
+    return m_group[index];
+}
+
+std::string
+Ipv6RoutingTableEntry::PrintGroup() const
+{
+    std::string output = "{ ";
+    // Counts occurences of egress ports in a group.
+    std::map<uint32_t, int> group_count;
+    for (const auto& interface : m_group) {
+        group_count[interface] += 1;
+    }
+    for (const auto& [interface, weight] : group_count) {
+        output += "[" + std::to_string((int)interface) + ": "
+            + std::to_string(weight) + "] ";
+    }
+    return output + "}";
 }
 
 std::ostream&

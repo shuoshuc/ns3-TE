@@ -38,6 +38,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/ipv4-global-routing-helper.h"
 #include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/ipv6-static-routing-helper.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
 
@@ -51,6 +52,18 @@
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("ECMPDemo");
+
+// Callback function to compute flow completion time.
+void calcFCT(Ptr<OutputStreamWrapper> stream, const Time &start,
+             const Time &end) {
+  auto dur = (end - start).ToInteger(Time::NS);
+  if (dur <= 0) {
+    return;
+  }
+  NS_LOG_INFO("FCT " << dur << " nsec.");
+  *stream->GetStream() << start.ToInteger(Time::NS) << ","
+                       << end.ToInteger(Time::NS) << "," << dur << std::endl;
+}
 
 int main(int argc, char *argv[]) {
   Time::SetResolution(Time::NS);
@@ -105,60 +118,74 @@ int main(int argc, char *argv[]) {
 
   // Later, we add IP addresses.
   NS_LOG_INFO("Assign IP Addresses.");
-  Ipv4AddressHelper ipv4;
-  ipv4.SetBase("10.1.1.0", "255.255.255.0");
-  Ipv4InterfaceContainer i0i1 = ipv4.Assign(d0d1);
-  ipv4.SetBase("10.1.2.0", "255.255.255.0");
-  Ipv4InterfaceContainer i1i2 = ipv4.Assign(d1d2);
-  Ipv4InterfaceContainer i1i3 = ipv4.Assign(d1d3);
-  ipv4.SetBase("10.1.3.0", "255.255.255.0");
-  Ipv4InterfaceContainer i2i4 = ipv4.Assign(d2d4);
-  Ipv4InterfaceContainer i3i4 = ipv4.Assign(d3d4);
-  ipv4.SetBase("10.1.4.0", "255.255.255.0");
-  Ipv4InterfaceContainer i4i5 = ipv4.Assign(d4d5);
+  Ipv6AddressHelper ipv6;
+  ipv6.SetBase(Ipv6Address("2001:1::"), Ipv6Prefix(64));
+  Ipv6InterfaceContainer i0i1 = ipv6.Assign(d0d1);
+  i0i1.SetForwarding(1, true);
+  ipv6.SetBase(Ipv6Address("2001:2::"), Ipv6Prefix(64));
+  Ipv6InterfaceContainer i1i2 = ipv6.Assign(d1d2);
+  i1i2.SetForwarding(0, true);
+  i1i2.SetForwarding(1, true);
+  Ipv6InterfaceContainer i1i3 = ipv6.Assign(d1d3);
+  i1i3.SetForwarding(0, true);
+  i1i3.SetForwarding(1, true);
+  ipv6.SetBase(Ipv6Address("2001:3::"), Ipv6Prefix(64));
+  Ipv6InterfaceContainer i2i4 = ipv6.Assign(d2d4);
+  i2i4.SetForwarding(0, true);
+  i2i4.SetForwarding(1, true);
+  Ipv6InterfaceContainer i3i4 = ipv6.Assign(d3d4);
+  i3i4.SetForwarding(0, true);
+  i3i4.SetForwarding(1, true);
+  ipv6.SetBase(Ipv6Address("2001:4::"), Ipv6Prefix(64));
+  Ipv6InterfaceContainer i4i5 = ipv6.Assign(d4d5);
+  i4i5.SetForwarding(0, true);
 
   // Create router nodes, initialize routing database and set up the routing
   // tables in the nodes.
-  Ipv4StaticRoutingHelper ipv4RoutingHelper;
+  Ipv6StaticRoutingHelper ipv6RoutingHelper;
   for (uint32_t i = 0; i < c.GetN(); ++i) {
     Ptr<Node> sw = c.Get(i);
     // First removes all routes.
-    Ptr<Ipv4StaticRouting> staticRouting =
-        ipv4RoutingHelper.GetStaticRouting(sw->GetObject<Ipv4>());
+    Ptr<Ipv6StaticRouting> staticRouting =
+        ipv6RoutingHelper.GetStaticRouting(sw->GetObject<Ipv6>());
     while (staticRouting->GetNRoutes()) {
       staticRouting->RemoveRoute(0);
     }
     // Adds localhost and default routes. Only n0 and n5 need default route.
-    staticRouting->AddNetworkRouteTo(Ipv4Address("127.0.0.0"), Ipv4Mask("/8"),
-                                     0);
+    staticRouting->AddNetworkRouteTo(Ipv6Address("::1"), Ipv6Prefix(128), 0);
     if (i == 0 || i == 5) {
-      staticRouting->AddNetworkRouteTo(Ipv4Address("0.0.0.0"), Ipv4Mask("/0"),
+      staticRouting->AddNetworkRouteTo(Ipv6Address("::"), Ipv6Prefix::GetZero(),
                                        1);
     }
     if (i == 2 || i == 3) {
-      staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("/24"),
+      staticRouting->AddNetworkRouteTo(Ipv6Address("2001:1::"), Ipv6Prefix(64),
                                        1);
-      staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.4.0"), Ipv4Mask("/24"),
+      staticRouting->AddNetworkRouteTo(Ipv6Address("2001:4::"), Ipv6Prefix(64),
                                        2);
     }
     if (i == 1) {
-      staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("/24"),
+      // Only single path to its own subnet.
+      staticRouting->AddNetworkRouteTo(Ipv6Address("2001:1::"), Ipv6Prefix(64),
                                        1);
-      std::map<int, int> weights{{2, 3}, {3, 1000}};
-      std::vector<int> group;
+      // Constructs an ECMP group between interface 2 and 3.
+      /*
+      std::map<int, int> weights{{2, 1}, {3, 1}};
+      std::vector<uint32_t> group{2, 3};
       for (const auto& [interface, weight] : weights) {
         std::vector<int> vec(weight, interface);
         group.insert(std::end(group), std::begin(vec), std::end(vec));
       }
-      staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.4.0"), Ipv4Mask("/24"),
-                                       2, 1, group);
+      */
+      std::vector<uint32_t> group{2, 3};
+      staticRouting->AddNetworkRouteTo(Ipv6Address("2001:4::"), Ipv6Prefix(64),
+                                       2, group);
     }
     if (i == 4) {
-      staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("/24"),
-                                       1);
-      staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.1.0"), Ipv4Mask("/24"),
-                                       2);
-      staticRouting->AddNetworkRouteTo(Ipv4Address("10.1.4.0"), Ipv4Mask("/24"),
+      std::vector<uint32_t> group{1, 2};
+      staticRouting->AddNetworkRouteTo(Ipv6Address("2001:1::"), Ipv6Prefix(64),
+                                       1, group);
+      // Only single path to its own subnet.
+      staticRouting->AddNetworkRouteTo(Ipv6Address("2001:4::"), Ipv6Prefix(64),
                                        3);
     }
   }
@@ -167,23 +194,25 @@ int main(int argc, char *argv[]) {
   NS_LOG_INFO("Create Applications.");
   uint16_t port = 9; // Discard port (RFC 863)
   ApplicationContainer apps;
-  for (int i = 0; i < 10; ++i) {
-    BulkSendHelper bulk("ns3::TcpSocketFactory",
-                        InetSocketAddress(i4i5.GetAddress(1), port));
-    bulk.SetAttribute("MaxBytes", UintegerValue(1000));
+  BulkSendHelper bulk("ns3::TcpSocketFactory",
+                      Inet6SocketAddress(i4i5.GetAddress(1, 1), port));
+  bulk.SetAttribute("MaxBytes", UintegerValue(2000000));
+  Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>("fct-plb.csv",
+                                                                std::ios::app);
+  for (int i = 0; i < 1; ++i) {
     apps = bulk.Install(c.Get(0));
     apps.Start(Seconds(1.0));
-    apps.Stop(Seconds(10.0));
+    apps.Get(0)->TraceConnectWithoutContext(
+        "Fct", MakeBoundCallback(&calcFCT, stream));
   }
 
   // Create a packet sink to receive these packets
   PacketSinkHelper sink("ns3::TcpSocketFactory",
-                        InetSocketAddress(Ipv4Address::GetAny(), port));
+                        Inet6SocketAddress(Ipv6Address::GetAny(), port));
   apps = sink.Install(c.Get(5));
   apps.Start(Seconds(0.0));
-  apps.Stop(Seconds(10.0));
 
-  p2p.EnablePcapAll("routing");
+  //p2p.EnablePcapAll("routing");
 
   // Flow Monitor
   FlowMonitorHelper flowmonHelper;
@@ -191,13 +220,14 @@ int main(int argc, char *argv[]) {
     flowmonHelper.InstallAll();
   }
 
-  Ipv4GlobalRoutingHelper g;
-  g.PrintRoutingTableAt(
-      Seconds(0), c.Get(1),
+  Ipv6StaticRoutingHelper g;
+  g.PrintRoutingTableAt(Seconds(0), c.Get(1),
       Create<OutputStreamWrapper>("n1.routes", std::ios::out));
+  g.PrintRoutingTableAt(Seconds(0), c.Get(4),
+      Create<OutputStreamWrapper>("n4.routes", std::ios::out));
 
   NS_LOG_INFO("Run Simulation.");
-  Simulator::Stop(Seconds(11));
+  Simulator::Stop(Seconds(10));
   Simulator::Run();
   NS_LOG_INFO("Done.");
 

@@ -126,6 +126,21 @@ class Ipv6RoutingTableEntry
     uint32_t GetInterface() const;
 
     /**
+     * \return The number of egress entries in the group.
+     */
+    uint32_t GroupSize() const;
+
+    /**
+     * \return The egress interface at location index in the group.
+     */
+    uint32_t LookupGroup(int index) const;
+
+    /**
+     * \return The formatted group as map-style string representation.
+     */
+    std::string PrintGroup() const;
+
+    /**
      * \brief Create a route to a host.
      * \param dest destination address
      * \param nextHop next hop address to route the packet
@@ -186,6 +201,19 @@ class Ipv6RoutingTableEntry
                                                       uint32_t interface);
 
     /**
+     * \brief Create a route to a network.
+     * \param network network address
+     * \param networkPrefix network prefix
+     * \param interface interface index
+     * \param group ECMP/WCMP group
+     * \return IPv6Route object
+     */
+    static Ipv6RoutingTableEntry CreateNetworkRouteTo(Ipv6Address network,
+                                                      Ipv6Prefix networkPrefix,
+                                                      uint32_t interface,
+                                                      std::vector<uint32_t> group);
+
+    /**
      * \brief Create a default route.
      * \param nextHop next hop address to route the packet
      * \param interface interface index
@@ -243,6 +271,16 @@ class Ipv6RoutingTableEntry
     /**
      * \brief Constructor.
      * \param dest destination address
+     * \param prefix destination prefix
+     * \param interface interface index
+     * \param group ECMP/WCMP group
+     */
+    Ipv6RoutingTableEntry(Ipv6Address dest, Ipv6Prefix prefix, uint32_t interface,
+                          std::vector<uint32_t> group);
+
+    /**
+     * \brief Constructor.
+     * \param dest destination address
      * \param gateway the gateway
      * \param interface interface index
      */
@@ -274,6 +312,11 @@ class Ipv6RoutingTableEntry
      * \brief The interface index.
      */
     uint32_t m_interface;
+
+    /**
+     * \brief The egress group.
+     */
+    std::vector<uint32_t> m_group;
 
     /**
      * \brief Prefix to use.

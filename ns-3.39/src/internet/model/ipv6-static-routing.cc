@@ -28,6 +28,8 @@
 #include "ns3/node.h"
 #include "ns3/packet.h"
 #include "ns3/simulator.h"
+#include "ns3/tcp-header.h"
+#include "ns3/udp-header.h"
 
 #include <iomanip>
 
@@ -52,6 +54,12 @@ Ipv6StaticRouting::Ipv6StaticRouting()
     : m_ipv6(nullptr)
 {
     NS_LOG_FUNCTION(this);
+
+    m_rand = CreateObject<UniformRandomVariable>();
+    m_seed = m_rand->GetInteger(0, 0xFFFFFFFF);
+
+    // hasher for ecmp.
+    hasher = Hasher();
 }
 
 Ipv6StaticRouting::~Ipv6StaticRouting()
@@ -98,7 +106,7 @@ Ipv6StaticRouting::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit
 
     if (GetNRoutes() > 0)
     {
-        *os << "Destination                    Next Hop                   Flag Met Ref Use If"
+        *os << "Destination                    Next Hop                   Flag Met Ref Use If Group"
             << std::endl;
         for (uint32_t j = 0; j < GetNRoutes(); j++)
         {
@@ -130,11 +138,19 @@ Ipv6StaticRouting::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit
                 << "   ";
             if (!Names::FindName(m_ipv6->GetNetDevice(route.GetInterface())).empty())
             {
-                *os << Names::FindName(m_ipv6->GetNetDevice(route.GetInterface()));
+                *os << std::setw(3) << Names::FindName(m_ipv6->GetNetDevice(route.GetInterface()));
             }
             else
             {
-                *os << route.GetInterface();
+                *os << std::setw(3) << route.GetInterface();
+            }
+            if (route.GroupSize())
+            {
+                *os << std::setw(5) << route.PrintGroup();
+            }
+            else
+            {
+                *os << std::setw(5) << "-";
             }
             *os << std::endl;
         }
@@ -223,6 +239,25 @@ Ipv6StaticRouting::AddNetworkRouteTo(Ipv6Address network,
 
     Ipv6RoutingTableEntry route =
         Ipv6RoutingTableEntry::CreateNetworkRouteTo(network, networkPrefix, interface);
+    if (!LookupRoute(route, metric))
+    {
+        Ipv6RoutingTableEntry* routePtr = new Ipv6RoutingTableEntry(route);
+        m_networkRoutes.emplace_back(routePtr, metric);
+    }
+}
+
+void
+Ipv6StaticRouting::AddNetworkRouteTo(Ipv6Address network,
+                                     Ipv6Prefix networkPrefix,
+                                     uint32_t interface,
+                                     std::vector<uint32_t> group,
+                                     uint32_t metric)
+{
+    NS_LOG_FUNCTION(this << network << networkPrefix << interface << group);
+
+    Ipv6RoutingTableEntry route =
+        Ipv6RoutingTableEntry::CreateNetworkRouteTo(network, networkPrefix,
+                                                    interface, group);
     if (!LookupRoute(route, metric))
     {
         Ipv6RoutingTableEntry* routePtr = new Ipv6RoutingTableEntry(route);
@@ -380,12 +415,17 @@ Ipv6StaticRouting::LookupRoute(const Ipv6RoutingTableEntry& route, uint32_t metr
 }
 
 Ptr<Ipv6Route>
-Ipv6StaticRouting::LookupStatic(Ipv6Address dst, Ptr<NetDevice> interface)
+Ipv6StaticRouting::LookupStatic(const Ipv6Header &header,
+                                Ptr<const Packet> ipPayload,
+                                Ptr<NetDevice> interface)
 {
-    NS_LOG_FUNCTION(this << dst << interface);
+    NS_LOG_FUNCTION(this << header << ipPayload << interface);
+    Ipv6Address dst = header.GetDestination();
     Ptr<Ipv6Route> rtentry = nullptr;
     uint16_t longestMask = 0;
     uint32_t shortestMetric = 0xffffffff;
+    // store all available routes that bring packets to their destination
+    std::vector<Ipv6RoutingTableEntry*> allRoutes;
 
     /* when sending on link-local multicast, there have to be interface specified */
     if (dst.IsLinkLocalMulticast())
@@ -440,36 +480,49 @@ Ipv6StaticRouting::LookupStatic(Ipv6Address dst, Ptr<NetDevice> interface)
                 }
 
                 shortestMetric = metric;
-                Ipv6RoutingTableEntry* route = j;
-                uint32_t interfaceIdx = route->GetInterface();
-                rtentry = Create<Ipv6Route>();
+                allRoutes.push_back(j);
 
-                if (route->GetGateway().IsAny())
-                {
-                    rtentry->SetSource(
-                        m_ipv6->SourceAddressSelection(interfaceIdx, route->GetDest()));
-                }
-                else if (route->GetDest().IsAny()) /* default route */
-                {
-                    rtentry->SetSource(m_ipv6->SourceAddressSelection(
-                        interfaceIdx,
-                        route->GetPrefixToUse().IsAny() ? dst : route->GetPrefixToUse()));
-                }
-                else
-                {
-                    rtentry->SetSource(
-                        m_ipv6->SourceAddressSelection(interfaceIdx, route->GetDest()));
-                }
-
-                rtentry->SetDestination(route->GetDest());
-                rtentry->SetGateway(route->GetGateway());
-                rtentry->SetOutputDevice(m_ipv6->GetNetDevice(interfaceIdx));
                 if (maskLen == 128)
                 {
                     break;
                 }
             }
         }
+    }
+
+    // Load balancing logic is implemented in this section.
+    if (!allRoutes.empty())
+    {
+        Ipv6RoutingTableEntry* route = allRoutes.at(0);
+        rtentry = Create<Ipv6Route>();
+
+        uint32_t interfaceIdx = route->GetInterface();
+        if (route->GroupSize())
+        {
+            uint32_t hash = GetFlowHash(header, ipPayload);
+            interfaceIdx = route->LookupGroup(hash % route->GroupSize());
+        }
+
+        if (route->GetGateway().IsAny())
+        {
+            rtentry->SetSource(
+                m_ipv6->SourceAddressSelection(interfaceIdx, route->GetDest()));
+        }
+        else if (route->GetDest().IsAny()) /* default route */
+        {
+            rtentry->SetSource(m_ipv6->SourceAddressSelection(
+                interfaceIdx,
+                route->GetPrefixToUse().IsAny() ? dst : route->GetPrefixToUse()));
+        }
+        else
+        {
+            rtentry->SetSource(
+                m_ipv6->SourceAddressSelection(interfaceIdx, route->GetDest()));
+        }
+
+        rtentry->SetDestination(route->GetDest());
+        rtentry->SetGateway(route->GetGateway());
+        rtentry->SetOutputDevice(m_ipv6->GetNetDevice(interfaceIdx));
     }
 
     if (rtentry)
@@ -699,7 +752,7 @@ Ipv6StaticRouting::RouteOutput(Ptr<Packet> p,
         NS_LOG_LOGIC("RouteOutput ()::Multicast destination");
     }
 
-    rtentry = LookupStatic(destination, oif);
+    rtentry = LookupStatic(header, p, oif);
     if (rtentry)
     {
         sockerr = Socket::ERROR_NOTERROR;
@@ -761,7 +814,7 @@ Ipv6StaticRouting::RouteInput(Ptr<const Packet> p,
     }
     // Next, try to find a route
     NS_LOG_LOGIC("Unicast destination");
-    Ptr<Ipv6Route> rtentry = LookupStatic(header.GetDestination());
+    Ptr<Ipv6Route> rtentry = LookupStatic(header, p);
 
     if (rtentry)
     {
@@ -923,6 +976,45 @@ Ipv6StaticRouting::NotifyRemoveRoute(Ipv6Address dst,
         /* default route case */
         RemoveRoute(dst, mask, interface, prefixToUse);
     }
+}
+
+uint32_t
+Ipv6StaticRouting::GetFlowHash(const Ipv6Header &header,
+                               Ptr<const Packet> ipPayload)
+{
+    NS_LOG_FUNCTION(this << header);
+    Ptr<Node> node = m_ipv6->GetObject<Node>();
+
+    hasher.clear();
+    std::ostringstream oss;
+    uint8_t nextHeader = header.GetNextHeader();
+    oss << header.GetSource() << header.GetDestination() << nextHeader
+        << header.GetFlowLabel() << m_seed;
+
+    uint16_t sport, dport;
+    //uint8_t IPV6_TCP = 6,
+    //uint8_t IPV6_UDP = 17,
+    switch (nextHeader)
+    {
+        case 6:
+            {
+                TcpHeader tcpHeader;
+                ipPayload->PeekHeader(tcpHeader);
+                sport = tcpHeader.GetSourcePort();
+                dport = tcpHeader.GetDestinationPort();
+                break;
+            }
+        default:
+            {
+                NS_LOG_INFO("GetFlowHash() unsupported protocol type "
+                            << nextHeader);
+                break;
+            }
+    }
+
+    oss << sport << dport;
+
+    return hasher.GetHash32(oss.str());
 }
 
 } /* namespace ns3 */

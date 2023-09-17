@@ -23,8 +23,11 @@
 #include "ns3/ipv6-address.h"
 #include "ns3/ipv6-header.h"
 #include "ns3/ipv6-routing-protocol.h"
+#include "ns3/ipv6-routing-table-entry.h"
 #include "ns3/ipv6.h"
 #include "ns3/ptr.h"
+#include "ns3/random-variable-stream.h"
+#include "ns3/hash.h"
 
 #include <list>
 #include <stdint.h>
@@ -133,6 +136,20 @@ class Ipv6StaticRouting : public Ipv6RoutingProtocol
     void AddNetworkRouteTo(Ipv6Address network,
                            Ipv6Prefix networkPrefix,
                            uint32_t interface,
+                           uint32_t metric = 0);
+
+    /**
+     * \brief Add route to network.
+     * \param network network address
+     * \param networkPrefix network prefix
+     * \param interface interface index
+     * \param group ECMP/WCMP group
+     * \param metric metric of route in case of multiple routes to same destination
+     */
+    void AddNetworkRouteTo(Ipv6Address network,
+                           Ipv6Prefix networkPrefix,
+                           uint32_t interface,
+                           std::vector<uint32_t> group,
                            uint32_t metric = 0);
 
     /**
@@ -319,7 +336,9 @@ class Ipv6StaticRouting : public Ipv6RoutingProtocol
      * \param interface output interface if any (put 0 otherwise)
      * \return Ipv6Route to route the packet to reach dest address
      */
-    Ptr<Ipv6Route> LookupStatic(Ipv6Address dest, Ptr<NetDevice> = nullptr);
+    Ptr<Ipv6Route> LookupStatic(const Ipv6Header &header,
+                                Ptr<const Packet> ipPayload,
+                                Ptr<NetDevice> = nullptr);
 
     /**
      * \brief Lookup in the multicast forwarding table for destination.
@@ -329,6 +348,14 @@ class Ipv6StaticRouting : public Ipv6RoutingProtocol
      * \return Ipv6MulticastRoute to route the packet to reach dest address
      */
     Ptr<Ipv6MulticastRoute> LookupStatic(Ipv6Address origin, Ipv6Address group, uint32_t ifIndex);
+
+    /**
+     * \brief Computes a flow hash using 5 tuples.
+     * \param Ipv6 packet header
+     * \param Ipv6 packet payload
+     * \return 32-bit hash value
+     */
+    uint32_t GetFlowHash(const Ipv6Header &header, Ptr<const Packet> ipPayload);
 
     /**
      * \brief the forwarding table for network.
@@ -344,6 +371,17 @@ class Ipv6StaticRouting : public Ipv6RoutingProtocol
      * \brief Ipv6 reference.
      */
     Ptr<Ipv6> m_ipv6;
+
+    /**
+     * \brief a hash helper library.
+     */
+    Hasher hasher;
+
+    /// A uniform random number generator for randomly routing packets among ECMP
+    Ptr<UniformRandomVariable> m_rand;
+
+    /// A seed used when computing flow hash.
+    uint32_t m_seed;
 };
 
 } /* namespace ns3 */
