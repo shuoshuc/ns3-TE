@@ -168,13 +168,13 @@ int main(int argc, char *argv[]) {
       staticRouting->AddNetworkRouteTo(Ipv6Address("2001:1::"), Ipv6Prefix(64),
                                        1);
       // Constructs an ECMP group between interface 2 and 3.
-      std::vector<uint32_t> group(100, 3);
+      std::vector<uint32_t> group(1, 3);
       group.push_back(2);
       staticRouting->AddNetworkRouteTo(Ipv6Address("2001:4::"), Ipv6Prefix(64),
                                        2, group);
     }
     if (i == 4) {
-      std::vector<uint32_t> group(100, 2);
+      std::vector<uint32_t> group(1, 2);
       group.push_back(1);
       staticRouting->AddNetworkRouteTo(Ipv6Address("2001:1::"), Ipv6Prefix(64),
                                        1, group);
@@ -194,9 +194,9 @@ int main(int argc, char *argv[]) {
   bulk.SetAttribute("MaxBytes", UintegerValue(2000000));
   Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>("fct-plb.csv",
                                                                 std::ios::app);
-  for (int i = 0; i < 10; ++i) {
+  for (int i = 0; i < 1000; ++i) {
     apps = bulk.Install(c.Get(0));
-    apps.Start(Seconds(1.0));
+    apps.Start(Seconds(0.1));
     apps.Get(0)->TraceConnectWithoutContext(
         "Fct", MakeBoundCallback(&calcFCT, stream));
   }
@@ -224,7 +224,7 @@ int main(int argc, char *argv[]) {
   */
 
   NS_LOG_INFO("Run Simulation.");
-  Simulator::Stop(Seconds(10));
+  Simulator::Stop(Seconds(100));
   Simulator::Run();
   NS_LOG_INFO("Done.");
 
