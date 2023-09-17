@@ -77,8 +77,6 @@ int main(int argc, char *argv[]) {
 
   // Set up some default values for the simulation.  Use the
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
-  Config::SetDefault("ns3::Ipv4StaticRouting::FlowEcmpRouting",
-                     BooleanValue(true));
 
   // DefaultValue::Bind ("DropTailQueue::m_maxPackets", 30);
 
@@ -103,15 +101,17 @@ int main(int argc, char *argv[]) {
 
   // We create the channels first without any IP addressing information
   NS_LOG_INFO("Create channels.");
-  PointToPointHelper p2p;
-  p2p.SetDeviceAttribute("DataRate", StringValue("5Mbps"));
-  p2p.SetChannelAttribute("Delay", StringValue("2ms"));
-  NetDeviceContainer d0d1 = p2p.Install(n0n1);
-  NetDeviceContainer d1d2 = p2p.Install(n1n2);
-  NetDeviceContainer d1d3 = p2p.Install(n1n3);
-  NetDeviceContainer d2d4 = p2p.Install(n2n4);
-  NetDeviceContainer d3d4 = p2p.Install(n3n4);
-  NetDeviceContainer d4d5 = p2p.Install(n4n5);
+  PointToPointHelper fastLink, slowLink;
+  fastLink.SetDeviceAttribute("DataRate", StringValue("100Gbps"));
+  fastLink.SetChannelAttribute("Delay", StringValue("5us"));
+  slowLink.SetDeviceAttribute("DataRate", StringValue("1Gbps"));
+  slowLink.SetChannelAttribute("Delay", StringValue("5us"));
+  NetDeviceContainer d0d1 = fastLink.Install(n0n1);
+  NetDeviceContainer d1d2 = slowLink.Install(n1n2);
+  NetDeviceContainer d1d3 = fastLink.Install(n1n3);
+  NetDeviceContainer d2d4 = slowLink.Install(n2n4);
+  NetDeviceContainer d3d4 = fastLink.Install(n3n4);
+  NetDeviceContainer d4d5 = fastLink.Install(n4n5);
 
   InternetStackHelper internet;
   internet.InstallAll();
@@ -168,20 +168,14 @@ int main(int argc, char *argv[]) {
       staticRouting->AddNetworkRouteTo(Ipv6Address("2001:1::"), Ipv6Prefix(64),
                                        1);
       // Constructs an ECMP group between interface 2 and 3.
-      /*
-      std::map<int, int> weights{{2, 1}, {3, 1}};
-      std::vector<uint32_t> group{2, 3};
-      for (const auto& [interface, weight] : weights) {
-        std::vector<int> vec(weight, interface);
-        group.insert(std::end(group), std::begin(vec), std::end(vec));
-      }
-      */
-      std::vector<uint32_t> group{2, 3};
+      std::vector<uint32_t> group(100, 3);
+      group.push_back(2);
       staticRouting->AddNetworkRouteTo(Ipv6Address("2001:4::"), Ipv6Prefix(64),
                                        2, group);
     }
     if (i == 4) {
-      std::vector<uint32_t> group{1, 2};
+      std::vector<uint32_t> group(100, 2);
+      group.push_back(1);
       staticRouting->AddNetworkRouteTo(Ipv6Address("2001:1::"), Ipv6Prefix(64),
                                        1, group);
       // Only single path to its own subnet.
@@ -196,10 +190,11 @@ int main(int argc, char *argv[]) {
   ApplicationContainer apps;
   BulkSendHelper bulk("ns3::TcpSocketFactory",
                       Inet6SocketAddress(i4i5.GetAddress(1, 1), port));
+  // 2MB flows.
   bulk.SetAttribute("MaxBytes", UintegerValue(2000000));
   Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>("fct-plb.csv",
                                                                 std::ios::app);
-  for (int i = 0; i < 1; ++i) {
+  for (int i = 0; i < 10; ++i) {
     apps = bulk.Install(c.Get(0));
     apps.Start(Seconds(1.0));
     apps.Get(0)->TraceConnectWithoutContext(
@@ -220,11 +215,13 @@ int main(int argc, char *argv[]) {
     flowmonHelper.InstallAll();
   }
 
+  /*
   Ipv6StaticRoutingHelper g;
   g.PrintRoutingTableAt(Seconds(0), c.Get(1),
       Create<OutputStreamWrapper>("n1.routes", std::ios::out));
   g.PrintRoutingTableAt(Seconds(0), c.Get(4),
       Create<OutputStreamWrapper>("n4.routes", std::ios::out));
+  */
 
   NS_LOG_INFO("Run Simulation.");
   Simulator::Stop(Seconds(10));
