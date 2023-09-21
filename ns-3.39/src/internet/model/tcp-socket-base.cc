@@ -3229,6 +3229,7 @@ TcpSocketBase::SendDataPacket(SequenceNumber32 seq, uint32_t maxSize, bool withA
     }
     else
     {
+        m_tcp->SetTxHash(m_tcb->m_txhash);
         m_tcp->SendPacket(p,
                           header,
                           m_endPoint6->GetLocalAddress(),

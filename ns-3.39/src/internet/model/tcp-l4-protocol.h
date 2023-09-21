@@ -288,6 +288,8 @@ class TcpL4Protocol : public IpL4Protocol
     IpL4Protocol::DownTargetCallback GetDownTarget() const override;
     IpL4Protocol::DownTargetCallback6 GetDownTarget6() const override;
 
+    void SetTxHash(uint32_t txhash);
+
   protected:
     void DoDispose() override;
 
@@ -346,6 +348,7 @@ class TcpL4Protocol : public IpL4Protocol
     uint64_t m_socketIndex{0}; //!< index of the next socket to be created
     IpL4Protocol::DownTargetCallback m_downTarget;   //!< Callback to send packets over IPv4
     IpL4Protocol::DownTargetCallback6 m_downTarget6; //!< Callback to send packets over IPv6
+    uint32_t m_txhash; //!< A 32-bit hash used by IPv6 flow label.
 
     /**
      * \brief Send a packet via TCP (IPv4)

@@ -25,6 +25,8 @@
 #include "ns3/abort.h"
 #include "ns3/log.h"
 
+#include <iostream>
+
 namespace ns3
 {
 
@@ -78,7 +80,9 @@ TcpDctcp::TcpDctcp()
       m_nextSeqFlag(false),
       m_ceState(false),
       m_delayedAckReserved(false),
-      m_initialized(false)
+      m_initialized(false),
+      m_consec_cong_rounds(0),
+      m_pause_until(Time(0))
 {
     NS_LOG_FUNCTION(this);
 }
@@ -96,7 +100,9 @@ TcpDctcp::TcpDctcp(const TcpDctcp& sock)
       m_delayedAckReserved(sock.m_delayedAckReserved),
       m_g(sock.m_g),
       m_useEct0(sock.m_useEct0),
-      m_initialized(sock.m_initialized)
+      m_initialized(sock.m_initialized),
+      m_consec_cong_rounds(sock.m_consec_cong_rounds),
+      m_pause_until(sock.m_pause_until)
 {
     NS_LOG_FUNCTION(this);
 }
@@ -122,6 +128,9 @@ TcpDctcp::Init(Ptr<TcpSocketState> tcb)
     tcb->m_ecnMode = TcpSocketState::DctcpEcn;
     tcb->m_ectCodePoint = m_useEct0 ? TcpSocketState::Ect0 : TcpSocketState::Ect1;
     m_initialized = true;
+
+    m_rand = CreateObject<UniformRandomVariable>();
+    tcb->m_txhash = m_rand->GetInteger(0, 0xFFFFFFFF);
 }
 
 // Step 9, Section 3.3 of RFC 8257.  GetSsThresh() is called upon
@@ -156,6 +165,8 @@ TcpDctcp::PktsAcked(Ptr<TcpSocketState> tcb, uint32_t segmentsAcked, const Time&
             bytesEcn = static_cast<double>(m_ackedBytesEcn * 1.0 / m_ackedBytesTotal);
         }
         m_alpha = (1.0 - m_g) * m_alpha + m_g * bytesEcn;
+        PlbUpdateState(bytesEcn);
+        PlbCheckRehash(tcb);
         m_traceCongestionEstimate(m_ackedBytesEcn, m_ackedBytesTotal, m_alpha);
         NS_LOG_INFO(this << "bytesEcn " << bytesEcn << ", m_alpha " << m_alpha);
         Reset(tcb);
@@ -168,6 +179,73 @@ TcpDctcp::InitializeDctcpAlpha(double alpha)
     NS_LOG_FUNCTION(this << alpha);
     NS_ABORT_MSG_IF(m_initialized, "DCTCP has already been initialized");
     m_alpha = alpha;
+}
+
+void
+TcpDctcp::PlbUpdateState(double cong_ratio)
+{
+    NS_LOG_FUNCTION(this << cong_ratio);
+    if (cong_ratio >= 0) {
+		if (cong_ratio < m_plb_cong_thresh) {
+			m_consec_cong_rounds = 0;
+        }
+		else if (m_consec_cong_rounds < m_plb_rehash_rounds) {
+			m_consec_cong_rounds++;
+        }
+	}
+}
+
+void
+TcpDctcp::PlbCheckRehash(Ptr<TcpSocketState>& tcb)
+{
+    NS_LOG_FUNCTION(this << tcb);
+
+	uint32_t max_suspend;
+	bool forced_rehash = false, idle_rehash = false;
+
+	forced_rehash = m_consec_cong_rounds >= m_plb_rehash_rounds;
+	// If sender goes idle then we check whether to rehash.
+	idle_rehash = m_plb_idle_rehash_rounds &&
+        !tcb->m_bytesInFlight.Get() &&
+        m_consec_cong_rounds >= m_plb_idle_rehash_rounds;
+
+	if (!forced_rehash && !idle_rehash) {
+		return;
+    }
+
+	// Note that tcp_jiffies32 can wrap; we detect wraps by checking for
+	// cases where the max suspension end is before the actual suspension
+	// end. We clear pause_until to 0 to indicate there is no recent
+	// RTO event that constrains PLB rehashing.
+	max_suspend = 2 * m_plb_suspend_rto_sec;
+	if (m_pause_until.IsZero() &&
+	    (!(Simulator::Now() < m_pause_until) ||
+	     (Simulator::Now() + Seconds(max_suspend) < m_pause_until))) {
+		m_pause_until = Time(0);
+    }
+
+	if (!m_pause_until.IsZero()) {
+		return;
+    }
+
+    tcb->m_txhash = m_rand->GetInteger(0, 0xFFFFFFFF);
+    std::cout << "New txhash generated: " << std::hex << tcb->m_txhash << std::endl;
+	m_consec_cong_rounds = 0;
+}
+
+void
+TcpDctcp::PlbUpdateStateUponRto()
+{
+    NS_LOG_FUNCTION(this);
+
+    uint32_t pause = m_plb_suspend_rto_sec + m_rand->GetInteger(0, m_plb_suspend_rto_sec);
+	m_pause_until = Simulator::Now() + Seconds((double)pause);
+
+	/* Reset PLB state upon RTO, since an RTO causes a sk_rethink_txhash() call
+	 * that may switch this connection to a path with completely different
+	 * congestion characteristics.
+	 */
+	m_consec_cong_rounds = 0;
 }
 
 void
@@ -277,6 +355,12 @@ TcpDctcp::CwndEvent(Ptr<TcpSocketState> tcb, const TcpSocketState::TcpCAEvent_t 
     case TcpSocketState::CA_EVENT_DELAYED_ACK:
     case TcpSocketState::CA_EVENT_NON_DELAYED_ACK:
         UpdateAckReserved(tcb, event);
+        break;
+    case TcpSocketState::CA_EVENT_LOSS:
+        PlbUpdateStateUponRto();
+        break;
+    case TcpSocketState::CA_EVENT_TX_START:
+        PlbCheckRehash(tcb);
         break;
     default:
         /* Don't care for the rest. */

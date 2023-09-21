@@ -77,6 +77,20 @@ int main(int argc, char *argv[]) {
 
   // Set up some default values for the simulation.  Use the
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
+  Config::SetDefault("ns3::TcpSocket::DelAckCount", UintegerValue(2));
+  GlobalValue::Bind("ChecksumEnabled", BooleanValue(false));
+  // DCTCP with RED router.
+  Config::SetDefault("ns3::TcpL4Protocol::SocketType",
+                     StringValue("ns3::TcpDctcp"));
+  Config::SetDefault("ns3::RedQueueDisc::UseEcn", BooleanValue(true));
+  Config::SetDefault("ns3::RedQueueDisc::QW", DoubleValue(1.0));
+  Config::SetDefault("ns3::RedQueueDisc::MinTh", DoubleValue(16));
+  Config::SetDefault("ns3::RedQueueDisc::MaxTh", DoubleValue(16));
+  Config::SetDefault("ns3::RedQueueDisc::UseHardDrop", BooleanValue(false));
+  Config::SetDefault("ns3::RedQueueDisc::MeanPktSize", UintegerValue(1500));
+  Config::SetDefault("ns3::RedQueueDisc::MaxSize", QueueSizeValue(QueueSize("2666p")));
+  Config::SetDefault("ns3::RedQueueDisc::MinTh", DoubleValue(20));
+  Config::SetDefault("ns3::RedQueueDisc::MaxTh", DoubleValue(60));
 
   // DefaultValue::Bind ("DropTailQueue::m_maxPackets", 30);
 

@@ -21,9 +21,13 @@
 #ifndef TCP_DCTCP_H
 #define TCP_DCTCP_H
 
+#include "ns3/hash.h"
 #include "ns3/tcp-congestion-ops.h"
 #include "ns3/tcp-linux-reno.h"
 #include "ns3/traced-callback.h"
+#include "ns3/nstime.h"
+#include "ns3/random-variable-stream.h"
+#include "ns3/simulator.h"
 
 namespace ns3
 {
@@ -127,6 +131,18 @@ class TcpDctcp : public TcpLinuxReno
      */
     void InitializeDctcpAlpha(double alpha);
 
+    // Called once per round-trip to update PLB state for a connection.
+    void PlbUpdateState(double cong_ratio);
+
+    // Check whether recent congestion has been persistent enough to warrant a
+    // load balancing decision that switches the connection to another path.
+    void PlbCheckRehash(Ptr<TcpSocketState>& tcb);
+
+    // Upon RTO, disallow load balancing for a while, to avoid having load
+    // balancing decisions switch traffic to a black-holed path that was
+    // previously avoided with a rehash() call at RTO time.
+    void PlbUpdateStateUponRto();
+
     uint32_t m_ackedBytesEcn;       //!< Number of acked bytes which are marked
     uint32_t m_ackedBytesTotal;     //!< Total number of acked bytes
     SequenceNumber32 m_priorRcvNxt; //!< Sequence number of the first missing byte in data
@@ -140,6 +156,26 @@ class TcpDctcp : public TcpLinuxReno
     double m_g;                //!< Estimation gain
     bool m_useEct0;            //!< Use ECT(0) for ECN codepoint
     bool m_initialized;        //!< Whether DCTCP has been initialized
+                               //
+    // Below is for PLB.
+    uint8_t m_consec_cong_rounds; //!< Consecutive congested rounds
+    Time m_pause_until;           //!< When PLB can resume rerouting
+    // Number of consecutive congested rounds (RTT) seen after which a rehash
+    // can be performed, given there are no packets in flight. This is referred
+    // to as M in PLB paper.
+    uint8_t m_plb_idle_rehash_rounds = 3;
+    // Number of consecutive congested rounds (RTT) seen after which a forced
+    // rehash can be performed. Be careful when setting this parameter, as a
+    // small value increases the risk of retransmissions. This is referred to
+    // as N in PLB paper.
+    uint8_t m_plb_rehash_rounds = 3;
+    // Time, in seconds, to suspend PLB in event of an RTO.
+    uint8_t m_plb_suspend_rto_sec = 60;
+    // Fraction of packets marked with congestion over a round (RTT) to tag that
+    // round as congested. This is referred to as K in the PLB paper.
+    double m_plb_cong_thresh = 0.5;
+    // A random number generator.
+    Ptr<UniformRandomVariable> m_rand;
     /**
      * \brief Callback pointer for congestion state update
      */

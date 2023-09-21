@@ -47,6 +47,7 @@
 #include "ns3/simulator.h"
 
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -674,6 +675,7 @@ TcpL4Protocol::SendPacketV6(Ptr<Packet> packet,
         header.SetSource(saddr);
         header.SetDestination(daddr);
         header.SetNextHeader(PROT_NUMBER);
+        header.SetFlowLabel(m_txhash);
         Socket::SocketErrno errno_;
         Ptr<Ipv6Route> route;
         if (ipv6->GetRoutingProtocol())
@@ -802,6 +804,12 @@ IpL4Protocol::DownTargetCallback6
 TcpL4Protocol::GetDownTarget6() const
 {
     return m_downTarget6;
+}
+
+void
+TcpL4Protocol::SetTxHash(uint32_t txhash)
+{
+    m_txhash = txhash;
 }
 
 } // namespace ns3

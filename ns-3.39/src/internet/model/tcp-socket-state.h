@@ -220,6 +220,8 @@ class TcpSocketState : public Object
         0}; //!< The number of bytes acked and sacked as indicated by the current ACK received. This
             //!< is similar to acked_sacked variable in Linux
 
+    uint32_t m_txhash{0}; //!< A 32-bit hash to be used in IPv6 flow label.
+
     /**
      * \brief Get cwnd in segments rather than bytes
      *
